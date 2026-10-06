@@ -37,7 +37,7 @@ jobs:
           restore-keys: anapa-state-
 
       - name: Scan
-        run: python realty-parser/scanner.py
+        run: python scanner.py
         working-directory: realty-parser
 
       - name: Save seen-listings state
