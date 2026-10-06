@@ -78,7 +78,7 @@ def pick_title(raw):
 
 def normalize(site, raw):
     text = " ".join([raw["title"], raw["text"]])
-    area = re.search(r"(\d+[.,]?\d*)\s*м²", text)
+    area = re.search(r"(\d+[.,]?\d*)\s*м²", text) or re.search(r"(\d+[.,]?\d*)\s*сот", text)
     rooms = re.search(r"(\d+)-?\s*(?:к\.|комн)", text) or (
         re.search(r"(студи[яи])", text, re.I))
     floor = re.search(r"(\d+/\d+)\s*(?:эт|этаж)", text)
@@ -99,12 +99,14 @@ def normalize(site, raw):
 
 
 def scrape(urls, pages, headless=True, delay=(3, 6)):
-    rows, seen = [], set()
+    rows, seen, failures = [], set(), []
     proxy = os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")
     launch = {"headless": headless, "args": ["--no-sandbox"]}
     if proxy:
         launch["proxy"] = {"server": proxy}
-    if os.path.exists("/opt/pw-browsers/chromium"):
+    if os.getenv("CHROME_CHANNEL"):  # на GitHub Actions: предустановленный google-chrome
+        launch["channel"] = os.getenv("CHROME_CHANNEL")
+    elif os.path.exists("/opt/pw-browsers/chromium"):
         launch["executable_path"] = "/opt/pw-browsers/chromium"
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch)
@@ -122,6 +124,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     items = page.evaluate(JS[site])
                 except Exception as e:
                     print(f"[{site} p{n}] ошибка: {str(e)[:100]}", file=sys.stderr)
+                    failures.append(f"{site}: {str(e)[:80]}")
                     break
                 new = 0
                 for raw in items:
@@ -135,14 +138,17 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     new += 1
                 status = resp.status if resp else "?"
                 print(f"[{site} p{n}] HTTP {status}, карточек: {len(items)}, новых: {new}")
+                if not items:
+                    failures.append(f"{site} p{n}: HTTP {status}, карточек нет (блокировка?)")
                 if new == 0:
                     if site == "domclick":
                         print("  Домклик закрыт антибот-защитой (Qrator): "
                               "попробуй --headed на своём компьютере.", file=sys.stderr)
                     break
-                page.wait_for_timeout(int(random.uniform(*delay) * 1000))
+                lo, hi = (10, 20) if site == "avito" else delay  # Авито быстро режет по частоте
+                page.wait_for_timeout(int(random.uniform(lo, hi) * 1000))
         browser.close()
-    return rows
+    return rows, failures
 
 
 def save(rows, path):
@@ -173,7 +179,7 @@ def main():
     ap.add_argument("-o", "--output", default="listings.xlsx", help=".xlsx или .csv")
     ap.add_argument("--headed", action="store_true", help="показать окно браузера")
     a = ap.parse_args()
-    rows = scrape(a.urls, a.pages, headless=not a.headed)
+    rows, _ = scrape(a.urls, a.pages, headless=not a.headed)
     save(rows, a.output)
     print(f"Готово: {len(rows)} объявлений -> {a.output}")
 
