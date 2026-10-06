@@ -12,7 +12,7 @@ import os
 import random
 import re
 import sys
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
 
 from playwright.sync_api import sync_playwright
 
@@ -98,22 +98,49 @@ def normalize(site, raw):
     }
 
 
+def proxy_for(site):
+    """Прокси только для Авито: AVITO_PROXY_URL=http://user:pass@host:port (остальные сайты идут напрямую)."""
+    raw = os.getenv("AVITO_PROXY_URL") if site == "avito" else None
+    if not raw:
+        return None
+    u = urlparse(raw)
+    cfg = {"server": f"{u.scheme or 'http'}://{u.hostname}:{u.port}"}
+    if u.username:
+        cfg["username"] = unquote(u.username)
+        cfg["password"] = unquote(u.password or "")
+    return cfg
+
+
+def _skip_heavy(route):
+    # картинки, видео и шрифты не нужны: экономим трафик платного прокси
+    if route.request.resource_type in ("image", "media", "font"):
+        return route.abort()
+    return route.continue_()
+
+
 def scrape(urls, pages, headless=True, delay=(3, 6)):
     rows, seen, failures = [], set(), []
     proxy = os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")
     launch = {"headless": headless, "args": ["--no-sandbox"]}
     if proxy:
         launch["proxy"] = {"server": proxy}
+    elif os.getenv("AVITO_PROXY_URL"):
+        launch["proxy"] = {"server": "per-context"}  # заглушка, реальный прокси задаётся в контексте
     if os.getenv("CHROME_CHANNEL"):  # на GitHub Actions: предустановленный google-chrome
         launch["channel"] = os.getenv("CHROME_CHANNEL")
     elif os.path.exists("/opt/pw-browsers/chromium"):
         launch["executable_path"] = "/opt/pw-browsers/chromium"
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch)
-        ctx = browser.new_context(locale="ru-RU", user_agent=UA)
-        page = ctx.new_page()
+        pages_by_site = {}
         for url in urls:
             site = detect_site(url)
+            if site not in pages_by_site:
+                kw = {"proxy": proxy_for(site)} if proxy_for(site) else {}
+                ctx = browser.new_context(locale="ru-RU", user_agent=UA, **kw)
+                ctx.route("**/*", _skip_heavy)
+                pages_by_site[site] = ctx.new_page()
+            page = pages_by_site[site]
             for n in range(1, pages + 1):
                 target = page_url(site, url, n)
                 try:

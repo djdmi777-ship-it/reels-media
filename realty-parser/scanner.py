@@ -64,6 +64,11 @@ def main():
     a = ap.parse_args()
 
     searches = json.loads(SEARCHES.read_text(encoding="utf-8"))
+    if os.getenv("CI") and not os.getenv("AVITO_PROXY_URL"):
+        skipped = [s["name"] for s in searches if "avito" in s["url"]]
+        searches = [s for s in searches if "avito" not in s["url"]]
+        if skipped:
+            print("CI без AVITO_PROXY_URL: пропускаю Авито (", ", ".join(skipped), ")")
     rows, failures = scrape([s["url"] for s in searches], a.pages)
     print(f"Получено объявлений: {len(rows)}; проблем: {len(failures)}")
     for f in failures:

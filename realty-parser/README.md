@@ -19,3 +19,12 @@ python parser.py "<URL поиска>" --pages 3 -o flats.xlsx
   Попробуй `--headed` на своём компьютере; гарантий нет.
 
 Парсинг может нарушать правила сайтов: используй умеренно, для личных целей.
+
+## Сканер новых объявлений (Анапа и район)
+`scanner.py` каждые 30 минут (GitHub Actions, `.github/workflows/anapa-scan.yml`) сравнивает выдачу с базой
+виденных ссылок и шлёт новые в Telegram. Поиски лежат в `searches.json`.
+
+Секреты репозитория (Settings -> Secrets and variables -> Actions):
+- `TG_BOT_TOKEN`, `TG_CHAT_ID` - Telegram;
+- `AVITO_PROXY_URL` - `http://user:pass@host:port`, российский домашний/мобильный прокси. Нужен только для
+  Авито: с адресов GitHub он отвечает 429. Без секрета Авито в облаке пропускается, ЦИАН работает напрямую.
