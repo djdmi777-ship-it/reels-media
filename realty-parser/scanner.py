@@ -3,8 +3,10 @@
   python scanner.py            # обычный запуск (cron / GitHub Actions каждые 30 минут)
   python scanner.py --dry-run  # ничего не сохранять и не отправлять
 
-Первый запуск (пустая база) только запоминает текущие объявления, без уведомлений.
-Telegram: переменные TG_BOT_TOKEN и TG_CHAT_ID (если не заданы - уведомление пропускается).
+Новый поиск (и самый первый запуск) сканируется «тихо»: объявления запоминаются без уведомлений.
+Список поисков меняется командами Telegram-бота (/add, /list, /remove), см. tgbot.py.
+Настройки: переменные окружения или файл .env рядом со скриптом:
+  TG_BOT_TOKEN, TG_CHAT_ID - Telegram; AVITO_PROXY_URL - прокси для Авито.
 """
 import argparse
 import json
@@ -16,11 +18,67 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-from parser import FIELDS, save, scrape
+import tgbot
+from parser import save, scrape
 
 HERE = Path(__file__).parent
 STATE = Path(os.getenv("STATE_FILE", HERE / "state" / "seen.json"))
-SEARCHES = Path(os.getenv("SEARCHES_FILE", HERE / "searches.json"))
+SEARCHES = Path(os.getenv("SEARCHES_FILE", HERE / "searches.json"))  # стартовый список
+SEARCH_STATE = STATE.parent / "searches.json"  # актуальный список, меняется командами бота
+OFFSET = STATE.parent / "tg_offset.json"
+
+
+def load_dotenv(path=HERE / ".env"):
+    """Мини-загрузчик .env: KEY=value, переменные окружения имеют приоритет."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+def load_searches():
+    if SEARCH_STATE.exists():
+        return json.loads(SEARCH_STATE.read_text(encoding="utf-8"))
+    seed = json.loads(SEARCHES.read_text(encoding="utf-8"))
+    return [{"name": s["name"], "url": s["url"], "seeded": False} for s in seed]
+
+
+def save_json(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def process_commands(searches):
+    """Применяет команды владельца бота к списку поисков. Возвращает True, если список изменился."""
+    token, chat = os.getenv("TG_BOT_TOKEN"), os.getenv("TG_CHAT_ID")
+    if not (token and chat):
+        return False
+    offset = int(OFFSET.read_text()) if OFFSET.exists() else 0
+    try:
+        updates = tgbot.fetch_updates(token, offset)
+    except Exception as e:  # сеть или Telegram недоступны - сканируем как есть
+        print(f"Не удалось получить команды бота: {str(e)[:100]}", file=sys.stderr)
+        return False
+    changed = False
+    for u in updates:
+        offset = max(offset, u["update_id"] + 1)
+        msg = u.get("message") or {}
+        text = (msg.get("text") or "").strip()
+        if str(msg.get("chat", {}).get("id")) != str(chat) or not text.startswith("/"):
+            continue  # чужие чаты и обычный текст игнорируем
+        reply, ch = tgbot.handle_command(text, searches)
+        changed |= ch
+        print(f"Команда бота: {text.split()[0]}")
+        try:
+            send_telegram(reply)
+        except Exception as e:
+            print(f"Не удалось ответить в Telegram: {str(e)[:100]}", file=sys.stderr)
+    if updates:
+        save_json(OFFSET, offset)
+    return changed
 
 
 def price_num(s):
@@ -58,68 +116,83 @@ def notify(blocks):
 
 
 def main():
+    load_dotenv()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--pages", type=int, default=int(os.getenv("SEARCH_PAGES", "2")))
+    ap.add_argument("--pages", type=int, default=int(os.getenv("SEARCH_PAGES", "1")))
     a = ap.parse_args()
 
-    searches = json.loads(SEARCHES.read_text(encoding="utf-8"))
+    searches = load_searches()
+    if not a.dry_run:
+        process_commands(searches)
+        save_json(SEARCH_STATE, searches)  # сохраняем сразу: команды не потеряются, даже если сканирование упадёт
+
+    active = searches
     if os.getenv("CI") and not os.getenv("AVITO_PROXY_URL"):
-        skipped = [s["name"] for s in searches if "avito" in s["url"]]
-        searches = [s for s in searches if "avito" not in s["url"]]
-        if skipped:
-            print("CI без AVITO_PROXY_URL: пропускаю Авито (", ", ".join(skipped), ")")
-    rows, failures = scrape([s["url"] for s in searches], a.pages)
+        active = [s for s in searches if "avito" not in s["url"]]
+        if len(active) != len(searches):
+            print("CI без AVITO_PROXY_URL: пропускаю поиски Авито")
+    if not active:
+        print("Поисков нет - нечего сканировать.")
+        return 0
+
+    rows, failures = scrape([s["url"] for s in active], a.pages)
     print(f"Получено объявлений: {len(rows)}; проблем: {len(failures)}")
     for f in failures:
         print("  !", f, file=sys.stderr)
     if not rows:
-        print("Ни одного объявления не получено - состояние не трогаю.", file=sys.stderr)
+        print("Ни одного объявления не получено - базу не трогаю.", file=sys.stderr)
         return 1
 
-    seen = json.loads(STATE.read_text()) if STATE.exists() else None
+    seen = json.loads(STATE.read_text()) if STATE.exists() else {}
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    first_run = seen is None
-    seen = seen or {}
+    seeded = {s["url"] for s in searches if s.get("seeded")}
 
-    new, changed = [], []
+    new, changed, quiet = [], [], 0
     for r in rows:
         old = seen.get(r["url"])
         if old is None:
-            new.append(r)
             seen[r["url"]] = {"first_seen": now, "price": r["price"], "title": r["title"]}
+            if r["search"] in seeded:
+                new.append(r)
+            else:
+                quiet += 1  # первый проход нового поиска: запоминаем без уведомления
         else:
             o, n = price_num(old.get("price")), price_num(r["price"])
             if o and n and o != n:
                 changed.append((r, old["price"]))
                 old["price"] = r["price"]
 
-    summary = [f"Сканирование: {len(rows)} в выдаче, новых {len(new)}, цена изменилась {len(changed)}"
-               + (" (первый запуск: база заполнена без уведомлений)" if first_run else "")]
-    if new and not first_run:
+    found_in = {r["search"] for r in rows}
+    newly_seeded = [s for s in searches if not s.get("seeded") and s["url"] in found_in]
+    for s in newly_seeded:
+        s["seeded"] = True
+
+    summary = (f"Сканирование: {len(rows)} в выдаче, новых {len(new)}, "
+               f"цена изменилась {len(changed)}, запомнено без уведомления {quiet}")
+    print(summary)
+    if new:
         save(new, str(HERE / "new_listings.csv"))
-    print("\n".join(summary))
 
     if a.dry_run:
         print("--dry-run: состояние и уведомления пропущены.")
-        for r in new[:5]:
+        for r in (new or rows)[:5]:
             print(fmt(r, "NEW "))
         return 0
 
-    STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(seen, ensure_ascii=False))
+    save_json(STATE, seen)
+    save_json(SEARCH_STATE, searches)
 
-    if not first_run and (new or changed):
-        blocks = [fmt(r, "🆕 ") for r in new] + [fmt(r, f"💸 было {old} -> ") for r, old in changed]
-        notify(blocks)
-    if first_run:
-        send_telegram(f"Сканер Анапы запущен. В базе {len(seen)} объявлений, дальше пришлю только новые.") \
-            if os.getenv("TG_BOT_TOKEN") else None
+    if new or changed:
+        notify([fmt(r, "🆕 ") for r in new] + [fmt(r, f"💸 было {old} -> ") for r, old in changed])
+    for s in newly_seeded:
+        send_telegram(f"Поиск «{s['name']}» подключён: запомнил текущие объявления, "
+                      "дальше пришлю только новые.")
 
     out = os.getenv("GITHUB_STEP_SUMMARY")
     if out:
         with open(out, "a", encoding="utf-8") as f:
-            f.write("### " + summary[0] + "\n")
+            f.write("### " + summary + "\n")
             for r in new[:30]:
                 f.write(f"- {r['price']} - [{r['title'] or r['url']}]({r['url']}) {r['address']}\n")
             for x in failures:

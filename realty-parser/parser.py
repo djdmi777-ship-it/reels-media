@@ -158,6 +158,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     if not raw["url"]:
                         continue
                     row = normalize(site, raw)
+                    row["search"] = url
                     if row["url"] in seen:
                         continue
                     seen.add(row["url"])
@@ -172,7 +173,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                         print("  Домклик закрыт антибот-защитой (Qrator): "
                               "попробуй --headed на своём компьютере.", file=sys.stderr)
                     break
-                lo, hi = (10, 20) if site == "avito" else delay  # Авито быстро режет по частоте
+                lo, hi = (6, 12) if site == "avito" else delay  # Авито быстро режет по частоте
                 page.wait_for_timeout(int(random.uniform(lo, hi) * 1000))
         browser.close()
     return rows, failures
@@ -181,7 +182,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
 def save(rows, path):
     if path.endswith(".csv"):
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            w = csv.DictWriter(f, FIELDS)
+            w = csv.DictWriter(f, FIELDS, extrasaction="ignore")
             w.writeheader()
             w.writerows(rows)
         return
