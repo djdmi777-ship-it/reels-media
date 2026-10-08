@@ -175,20 +175,28 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
             page = pages_by_site[site]
             for n in range(1, pages + 1):
                 target = page_url(site, url, n)
-                try:
-                    resp = page.goto(target, timeout=45000, wait_until="domcontentloaded")
+                def load():
+                    r = page.goto(target, timeout=45000, wait_until="domcontentloaded")
                     page.wait_for_timeout(4000)
                     page.mouse.wheel(0, 6000)  # дозагрузка ленивых карточек
                     page.wait_for_timeout(1500)
-                    items = page.evaluate(JS[site])
-                    if not items and modes[site]["light"]:
+                    return r, page.evaluate(JS[site])
+
+                try:
+                    resp, items = load()
+                    # 403/429 - блок по частоте: пауза и повтор (у ротируемого прокси будет другой IP)
+                    for _ in range(2):
+                        code = resp.status if resp else 0
+                        if items or code not in (403, 429):
+                            break
+                        print(f"[{site}] HTTP {code} - пауза и повтор")
+                        page.wait_for_timeout(int(random.uniform(8, 15) * 1000))
+                        resp, items = load()
+                    # полную загрузку включаем, только если страница открылась нормально, но без карточек
+                    if not items and modes[site]["light"] and resp and resp.status == 200:
                         print(f"[{site}] в лёгком режиме карточек нет - перехожу на полную загрузку")
                         modes[site]["light"] = False
-                        resp = page.goto(target, timeout=45000, wait_until="domcontentloaded")
-                        page.wait_for_timeout(4000)
-                        page.mouse.wheel(0, 6000)
-                        page.wait_for_timeout(1500)
-                        items = page.evaluate(JS[site])
+                        resp, items = load()
                 except Exception as e:
                     print(f"[{site} p{n}] ошибка: {str(e)[:100]}", file=sys.stderr)
                     failures.append(f"{site}: {str(e)[:80]}")
