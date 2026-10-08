@@ -136,15 +136,20 @@ def _router(mode):
     return handle
 
 
-def _traffic(requests):
-    """Сколько байт реально пришло по завершённым запросам (сжатый размер, как считает прокси)."""
+def _traffic(requests, breakdown=None):
+    """Сколько байт реально пришло по завершённым запросам (сжатый размер, как считает прокси).
+    breakdown: dict "тип домен" -> байты, чтобы видеть, что именно съедает трафик."""
     total = 0
     for r in requests:
         try:
             sz = r.sizes()
-            total += sz.get("responseBodySize", 0) + sz.get("responseHeadersSize", 0)
+            b = sz.get("responseBodySize", 0) + sz.get("responseHeadersSize", 0)
         except Exception:
-            pass
+            continue
+        total += b
+        if breakdown is not None:
+            key = f"{r.resource_type} {urlparse(r.url).hostname}"
+            breakdown[key] = breakdown.get(key, 0) + b
     requests.clear()
     return total
 
@@ -161,7 +166,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
         launch["executable_path"] = "/opt/pw-browsers/chromium"
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch)
-        pages_by_site, modes, finished, traffic = {}, {}, {}, {}
+        pages_by_site, modes, finished, traffic, breakdown = {}, {}, {}, {}, {}
         for url in urls:
             site = detect_site(url)
             if site not in pages_by_site:
@@ -169,7 +174,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                 ctx = browser.new_context(locale="ru-RU", user_agent=UA, **kw)
                 modes[site] = {"light": os.getenv("LIGHT_MODE", "1") == "1"}
                 ctx.route("**/*", _router(modes[site]))
-                finished[site], traffic[site] = [], 0
+                finished[site], traffic[site], breakdown[site] = [], 0, {}
                 ctx.on("requestfinished", lambda r, bucket=finished[site]: bucket.append(r))
                 pages_by_site[site] = ctx.new_page()
             page = pages_by_site[site]
@@ -213,7 +218,12 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     rows.append(row)
                     new += 1
                 status = resp.status if resp else "?"
-                kb = _traffic(finished[site]) / 1024
+                if not items:
+                    try:
+                        print(f"[{site}] страница без карточек: «{page.title()[:80]}»")
+                    except Exception:
+                        pass
+                kb = _traffic(finished[site], breakdown[site]) / 1024
                 traffic[site] += kb
                 mode = " (лёгкий режим)" if modes[site]["light"] else ""
                 print(f"[{site} p{n}] HTTP {status}, карточек: {len(items)}, новых: {new}, "
@@ -230,6 +240,9 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
         browser.close()
     for site, kb in traffic.items():
         print(f"Трафик {site} за запуск: ~{kb / 1024:.2f} МБ")
+        top = sorted(breakdown[site].items(), key=lambda x: -x[1])[:8]
+        for key, b in top:
+            print(f"    {b / 1024:7.0f} КБ  {key}")
     return rows, failures
 
 
