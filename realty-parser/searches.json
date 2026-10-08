@@ -1,0 +1,22 @@
+[
+  {
+    "name": "ЦИАН: квартиры",
+    "url": "https://anapa.cian.ru/kupit-kvartiru/?sort=creation_date_desc"
+  },
+  {
+    "name": "ЦИАН: дома",
+    "url": "https://anapa.cian.ru/kupit-dom/?sort=creation_date_desc"
+  },
+  {
+    "name": "Авито: квартиры",
+    "url": "https://www.avito.ru/anapa/kvartiry/prodam?s=104"
+  },
+  {
+    "name": "Авито: дома",
+    "url": "https://www.avito.ru/anapa/doma_dachi_kottedzhi/prodam?s=104"
+  },
+  {
+    "name": "Авито: участки",
+    "url": "https://www.avito.ru/anapa/zemelnye_uchastki/prodam?s=104"
+  }
+]
