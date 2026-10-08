@@ -12,6 +12,7 @@ import os
 import random
 import re
 import sys
+from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
 
 from playwright.sync_api import sync_playwright
@@ -126,11 +127,27 @@ HEAVY = ("image", "media", "font")
 LIGHT = HEAVY + ("script", "stylesheet", "xhr", "fetch")
 
 
-def _router(mode):
-    # mode["light"] переключается на лету; картинки и шрифты не грузим никогда
+# Сайты, которым нужен JS (карточки рисуются скриптами): грузим полностью, но только свои домены.
+OWN_DOMAINS = {"avito": ("avito.ru", "avito.st")}
+# Браузерный профиль (кэш скриптов + cookies) сохраняется между запусками: меньше трафика и блоков.
+PROFILE_SITES = os.getenv("PROFILE_SITES", "avito").split(",")
+PROFILE_DIR = Path(os.getenv("PROFILE_DIR", Path(__file__).parent / "state" / "browser"))
+# Для сайтов с профилем блокируем через CDP, а не page.route: route отключает HTTP-кэш браузера.
+BLOCK_URLS = [
+    "*.jpg*", "*.jpeg*", "*.png*", "*.webp*", "*.gif*", "*.svg*", "*.ico*", "*.woff*", "*.ttf*",
+    "*.mp4*", "*img.avito.st*", "*googletagmanager*", "*google-analytics*", "*doubleclick*",
+    "*mc.yandex*", "*yandex.ru/ads*", "*an.yandex*", "*buzzoola*", "*mail.ru*", "*vk.com*",
+    "*top-fwz1*", "*adfox*", "*criteo*", "*tiktok*", "*facebook*",
+]
+
+
+def _router(mode, own=None):
+    # mode["light"] переключается на лету; картинки и шрифты не грузим никогда;
+    # own - если задано, запросы к чужим доменам (аналитика, реклама) режем
     def handle(route):
         blocked = LIGHT if mode["light"] else HEAVY
-        if route.request.resource_type in blocked:
+        host = urlparse(route.request.url).hostname or ""
+        if route.request.resource_type in blocked or (own and not host.endswith(own)):
             return route.abort()
         return route.continue_()
     return handle
@@ -166,17 +183,30 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
         launch["executable_path"] = "/opt/pw-browsers/chromium"
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch)
-        pages_by_site, modes, finished, traffic, breakdown = {}, {}, {}, {}, {}
+        pages_by_site, modes, finished, traffic, breakdown, persistent = {}, {}, {}, {}, {}, []
         for url in urls:
             site = detect_site(url)
             if site not in pages_by_site:
                 kw = {"proxy": proxy_for(site)} if proxy_for(site) else {}
-                ctx = browser.new_context(locale="ru-RU", user_agent=UA, **kw)
-                modes[site] = {"light": os.getenv("LIGHT_MODE", "1") == "1"}
-                ctx.route("**/*", _router(modes[site]))
+                if site in PROFILE_SITES:
+                    opts = {k: v for k, v in launch.items() if k != "proxy"}
+                    ctx = p.chromium.launch_persistent_context(
+                        str(PROFILE_DIR / site), locale="ru-RU", user_agent=UA, **opts, **kw)
+                    persistent.append(ctx)
+                else:
+                    ctx = browser.new_context(locale="ru-RU", user_agent=UA, **kw)
+                light = os.getenv("LIGHT_MODE", "1") == "1" and site not in OWN_DOMAINS
+                modes[site] = {"light": light and site not in PROFILE_SITES}
                 finished[site], traffic[site], breakdown[site] = [], 0, {}
                 ctx.on("requestfinished", lambda r, bucket=finished[site]: bucket.append(r))
-                pages_by_site[site] = ctx.new_page()
+                pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+                if site in PROFILE_SITES:
+                    cdp = ctx.new_cdp_session(pg)
+                    cdp.send("Network.enable")
+                    cdp.send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
+                else:
+                    ctx.route("**/*", _router(modes[site], OWN_DOMAINS.get(site)))
+                pages_by_site[site] = pg
             page = pages_by_site[site]
             for n in range(1, pages + 1):
                 target = page_url(site, url, n)
@@ -237,6 +267,8 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     break
                 lo, hi = (6, 12) if site == "avito" else delay  # Авито быстро режет по частоте
                 page.wait_for_timeout(int(random.uniform(lo, hi) * 1000))
+        for ctx in persistent:
+            ctx.close()  # сохраняет профиль на диск
         browser.close()
     for site, kb in traffic.items():
         print(f"Трафик {site} за запуск: ~{kb / 1024:.2f} МБ")
