@@ -127,6 +127,8 @@ def main():
         process_commands(searches)
         save_json(SEARCH_STATE, searches)  # сохраняем сразу: команды не потеряются, даже если сканирование упадёт
 
+    print("Прокси для Авито:", "задан" if os.getenv("AVITO_PROXY_URL") else "НЕ задан",
+          "| Telegram:", "задан" if os.getenv("TG_BOT_TOKEN") and os.getenv("TG_CHAT_ID") else "НЕ задан")
     active = searches
     if os.getenv("CI") and not os.getenv("AVITO_PROXY_URL"):
         active = [s for s in searches if "avito" not in s["url"]]
