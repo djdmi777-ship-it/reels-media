@@ -111,11 +111,33 @@ def proxy_for(site):
     return cfg
 
 
-def _skip_heavy(route):
-    # картинки, видео и шрифты не нужны: экономим трафик платного прокси
-    if route.request.resource_type in ("image", "media", "font"):
-        return route.abort()
-    return route.continue_()
+HEAVY = ("image", "media", "font")
+# «Лёгкий» режим: карточки есть в самом HTML, скрипты и стили не нужны (в ~8 раз меньше трафика).
+# Если в лёгком режиме карточек нет - страница перезагружается полностью (см. scrape).
+LIGHT = HEAVY + ("script", "stylesheet", "xhr", "fetch")
+
+
+def _router(mode):
+    # mode["light"] переключается на лету; картинки и шрифты не грузим никогда
+    def handle(route):
+        blocked = LIGHT if mode["light"] else HEAVY
+        if route.request.resource_type in blocked:
+            return route.abort()
+        return route.continue_()
+    return handle
+
+
+def _traffic(requests):
+    """Сколько байт реально пришло по завершённым запросам (сжатый размер, как считает прокси)."""
+    total = 0
+    for r in requests:
+        try:
+            sz = r.sizes()
+            total += sz.get("responseBodySize", 0) + sz.get("responseHeadersSize", 0)
+        except Exception:
+            pass
+    requests.clear()
+    return total
 
 
 def scrape(urls, pages, headless=True, delay=(3, 6)):
@@ -132,13 +154,16 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
         launch["executable_path"] = "/opt/pw-browsers/chromium"
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch)
-        pages_by_site = {}
+        pages_by_site, modes, finished, traffic = {}, {}, {}, {}
         for url in urls:
             site = detect_site(url)
             if site not in pages_by_site:
                 kw = {"proxy": proxy_for(site)} if proxy_for(site) else {}
                 ctx = browser.new_context(locale="ru-RU", user_agent=UA, **kw)
-                ctx.route("**/*", _skip_heavy)
+                modes[site] = {"light": os.getenv("LIGHT_MODE", "1") == "1"}
+                ctx.route("**/*", _router(modes[site]))
+                finished[site], traffic[site] = [], 0
+                ctx.on("requestfinished", lambda r, bucket=finished[site]: bucket.append(r))
                 pages_by_site[site] = ctx.new_page()
             page = pages_by_site[site]
             for n in range(1, pages + 1):
@@ -149,6 +174,14 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     page.mouse.wheel(0, 6000)  # дозагрузка ленивых карточек
                     page.wait_for_timeout(1500)
                     items = page.evaluate(JS[site])
+                    if not items and modes[site]["light"]:
+                        print(f"[{site}] в лёгком режиме карточек нет - перехожу на полную загрузку")
+                        modes[site]["light"] = False
+                        resp = page.goto(target, timeout=45000, wait_until="domcontentloaded")
+                        page.wait_for_timeout(4000)
+                        page.mouse.wheel(0, 6000)
+                        page.wait_for_timeout(1500)
+                        items = page.evaluate(JS[site])
                 except Exception as e:
                     print(f"[{site} p{n}] ошибка: {str(e)[:100]}", file=sys.stderr)
                     failures.append(f"{site}: {str(e)[:80]}")
@@ -165,7 +198,11 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     rows.append(row)
                     new += 1
                 status = resp.status if resp else "?"
-                print(f"[{site} p{n}] HTTP {status}, карточек: {len(items)}, новых: {new}")
+                kb = _traffic(finished[site]) / 1024
+                traffic[site] += kb
+                mode = " (лёгкий режим)" if modes[site]["light"] else ""
+                print(f"[{site} p{n}] HTTP {status}, карточек: {len(items)}, новых: {new}, "
+                      f"трафик ~{kb:.0f} КБ{mode}")
                 if not items:
                     failures.append(f"{site} p{n}: HTTP {status}, карточек нет (блокировка?)")
                 if new == 0:
@@ -176,6 +213,8 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                 lo, hi = (6, 12) if site == "avito" else delay  # Авито быстро режет по частоте
                 page.wait_for_timeout(int(random.uniform(lo, hi) * 1000))
         browser.close()
+    for site, kb in traffic.items():
+        print(f"Трафик {site} за запуск: ~{kb / 1024:.2f} МБ")
     return rows, failures
 
 
