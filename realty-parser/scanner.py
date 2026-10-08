@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import tgbot
-from parser import save, scrape
+from parser import parse_proxy, save, scrape
 
 HERE = Path(__file__).parent
 STATE = Path(os.getenv("STATE_FILE", HERE / "state" / "seen.json"))
@@ -127,6 +127,12 @@ def main():
         process_commands(searches)
         save_json(SEARCH_STATE, searches)  # сохраняем сразу: команды не потеряются, даже если сканирование упадёт
 
+    if os.getenv("AVITO_PROXY_URL"):
+        try:
+            parse_proxy(os.environ["AVITO_PROXY_URL"])
+        except ValueError as e:
+            print(f"Ошибка настройки: {e}. Авито в этом запуске пропускаю.", file=sys.stderr)
+            del os.environ["AVITO_PROXY_URL"]
     print("Прокси для Авито:", "задан" if os.getenv("AVITO_PROXY_URL") else "НЕ задан",
           "| Telegram:", "задан" if os.getenv("TG_BOT_TOKEN") and os.getenv("TG_CHAT_ID") else "НЕ задан")
     active = searches

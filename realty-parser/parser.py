@@ -98,17 +98,26 @@ def normalize(site, raw):
     }
 
 
-def proxy_for(site):
-    """Прокси только для Авито: AVITO_PROXY_URL=http://user:pass@host:port (остальные сайты идут напрямую)."""
-    raw = os.getenv("AVITO_PROXY_URL") if site == "avito" else None
-    if not raw:
-        return None
-    u = urlparse(raw)
-    cfg = {"server": f"{u.scheme or 'http'}://{u.hostname}:{u.port}"}
+def parse_proxy(raw):
+    """http://логин:пароль@хост:порт -> настройки Playwright. ValueError, если строка не такая."""
+    u = urlparse(raw.strip())
+    try:
+        port = u.port
+    except ValueError:
+        port = None
+    if u.scheme not in ("http", "https", "socks5") or not u.hostname or not port:
+        raise ValueError("AVITO_PROXY_URL должен быть вида http://логин:пароль@хост:порт")
+    cfg = {"server": f"{u.scheme}://{u.hostname}:{port}"}
     if u.username:
         cfg["username"] = unquote(u.username)
         cfg["password"] = unquote(u.password or "")
     return cfg
+
+
+def proxy_for(site):
+    """Прокси только для Авито (AVITO_PROXY_URL); остальные сайты идут напрямую."""
+    raw = os.getenv("AVITO_PROXY_URL") if site == "avito" else None
+    return parse_proxy(raw) if raw else None
 
 
 HEAVY = ("image", "media", "font")
@@ -146,8 +155,6 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
     launch = {"headless": headless, "args": ["--no-sandbox"]}
     if proxy:
         launch["proxy"] = {"server": proxy}
-    elif os.getenv("AVITO_PROXY_URL"):
-        launch["proxy"] = {"server": "per-context"}  # заглушка, реальный прокси задаётся в контексте
     if os.getenv("CHROME_CHANNEL"):  # на GitHub Actions: предустановленный google-chrome
         launch["channel"] = os.getenv("CHROME_CHANNEL")
     elif os.path.exists("/opt/pw-browsers/chromium"):
