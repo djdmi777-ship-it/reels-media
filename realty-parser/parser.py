@@ -137,7 +137,7 @@ BLOCK_URLS = [
     "*.jpg*", "*.jpeg*", "*.png*", "*.webp*", "*.gif*", "*.svg*", "*.ico*", "*.woff*", "*.ttf*",
     "*.mp4*", "*img.avito.st*", "*googletagmanager*", "*google-analytics*", "*doubleclick*",
     "*mc.yandex*", "*yandex.ru/ads*", "*an.yandex*", "*buzzoola*", "*mail.ru*", "*vk.com*",
-    "*top-fwz1*", "*adfox*", "*criteo*", "*tiktok*", "*facebook*",
+    "*top-fwz1*", "*adfox*", "*criteo*", "*tiktok*", "*facebook*", "*uxfeedback*", "*hcaptcha*",
 ]
 
 
