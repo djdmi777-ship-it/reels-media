@@ -17,7 +17,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 190
     env:
       CHROME_CHANNEL: chrome          # предустановленный на раннере Google Chrome
       BROWSER_PATH: /usr/bin/yandex-browser-stable   # Яндекс Браузер, если установился
@@ -29,7 +29,10 @@ jobs:
       AVITO_ROTATE_TRIES: "8"         # смена IP без ограничений: до 8 адресов за запуск
       AVITO_ROTATE_WAIT: "10"
       AVITO_PER_RUN: "0"              # все поиски Авито в каждом запуске (0 = без очереди)
-      LOOP_MINUTES: "0"               # >0 - один запуск крутится N минут, проверяя каждые 5 минут (для тестов)
+      # временно, пока расписание GitHub не запускается: запуск из ветки крутится 170 минут, проверка раз в 15 минут
+      LOOP_MINUTES: ${{ github.event_name == 'push' && '170' || '0' }}
+      LOOP_PAUSE: "840"               # пауза между проверками, с (+ ~1 мин сама проверка = ~15 мин)
+      PUSH_DRY: "0"                   # 1 - тестовые запуски из ветки без уведомлений клиентам
       TECH_REPORT: ${{ github.event_name == 'push' && '1' || '0' }}  # тест: короткий отчёт о каждой проверке владельцу
       NO_JS: "0"                      # 1 - Авито без скриптов (проверено: чаще блок 429 и карточек нет - выключено)
       NO_BLOCK: "0"                   # экономия трафика: без рекламы, аналитики, картинок; если выдача не отрисуется - сам загрузит целиком
@@ -64,10 +67,10 @@ jobs:
           end=$((SECONDS + LOOP_MINUTES * 60))
           while true; do
             echo "=== Проверка $(TZ=Europe/Moscow date +%H:%M) МСК ==="
-            # тестовый запуск из ветки: без уведомлений клиентам и без записи базы (иначе дубли с расписанием из main)
-            python scanner.py ${{ github.event_name == 'push' && '--dry-run' || '' }} || echo "Проход завершился с ошибкой, продолжаю"
+            # PUSH_DRY=1: запуск из ветки без уведомлений клиентам и без записи базы
+            python scanner.py ${{ github.event_name == 'push' && env.PUSH_DRY == '1' && '--dry-run' || '' }} || echo "Проход завершился с ошибкой, продолжаю"
             [ "$SECONDS" -ge "$end" ] && break
-            sleep 300
+            sleep "${LOOP_PAUSE:-300}"
           done
         working-directory: realty-parser
 
