@@ -378,15 +378,6 @@ def main():
     if new:
         save(new, str(HERE / "new_listings.csv"))
 
-    if a.dry_run:
-        print("--dry-run: состояние и уведомления пропущены.")
-        for r in (new or rows)[:5]:
-            print(fmt(r, "NEW "))
-        return 0
-
-    save_json(STATE, seen)
-    save_json(SEARCH_STATE, searches)
-
     if os.getenv("TECH_REPORT") == "1" and os.getenv("TG_CHAT_ID"):
         # техотчёт только владельцу (TG_CHAT_ID): видно ход теста без логов GitHub
         by = {}
@@ -403,6 +394,15 @@ def main():
         except Exception as e:
             print(f"Техотчёт не отправлен: {e}")
     names = {x["url"]: x["name"] for x in searches}
+    if a.dry_run:
+        print("--dry-run: состояние и уведомления пропущены.")
+        for r in (new or rows)[:5]:
+            print(fmt(r, "NEW "))
+        return 0
+
+    save_json(STATE, seen)
+    save_json(SEARCH_STATE, searches)
+
     if new or changed:
         send_cards([(r, names.get(r["search"], ""), None) for r in new]
                    + [(r, names.get(r["search"], ""), old) for r, old in changed])

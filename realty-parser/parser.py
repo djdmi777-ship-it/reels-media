@@ -266,6 +266,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                 "viewport": {"width": 1366, "height": 768}}
         pages_by_site, modes, finished, traffic, breakdown, persistent, cdps = {}, {}, {}, {}, {}, [], {}
         net = {}  # site -> байты, реально полученные по сети (CDP)
+        cache_hits = {}  # site -> ответов из кэша браузера
         full_load = {}  # сайты, где экономный режим не сработал и страница грузится целиком
         for url in urls:
             site = detect_site(url)
@@ -273,6 +274,12 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                 kw = {"proxy": proxy_for(site)} if proxy_for(site) else {}
                 if site in PROFILE_SITES:
                     opts = {k: v for k, v in launch.items() if k != "proxy"}
+                    prof = PROFILE_DIR / (site if own_ua else site + "-yandex")
+                    cache_dir = prof / "DiskCache"
+                    size = sum(f.stat().st_size for f in cache_dir.rglob("*") if f.is_file()) if cache_dir.exists() else 0
+                    print(f"[{site}] кэш браузера в профиле: {size / 1024 / 1024:.1f} МБ")
+                    opts["args"] = list(opts.get("args", [])) + [f"--disk-cache-dir={cache_dir}",
+                                                                 "--disk-cache-size=209715200"]
                     ctx = p.chromium.launch_persistent_context(
                         str(PROFILE_DIR / (site if own_ua else site + "-yandex")), **look, **opts, **kw)
                     persistent.append(ctx)
@@ -286,6 +293,12 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                 if site in PROFILE_SITES:
                     cdp = ctx.new_cdp_session(pg)
                     net[site] = 0  # реальные байты по сети (кэш браузера не считается)
+                    cache_hits[site] = 0
+                    cdp.on("Network.requestServedFromCache",
+                           lambda ev, k=site: cache_hits.__setitem__(k, cache_hits[k] + 1))
+                    cdp.on("Network.responseReceived",
+                           lambda ev, k=site: cache_hits.__setitem__(k, cache_hits[k] + 1)
+                           if ev.get("response", {}).get("fromDiskCache") else None)
                     cdp.on("Network.loadingFinished",
                            lambda ev, k=site: net.__setitem__(k, net[k] + ev.get("encodedDataLength", 0)))
                     cdp.send("Network.enable")
@@ -358,7 +371,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                         print(f"[{site}] экономный режим без карточек - гружу страницу целиком")
                         full_load[site] = True
                         cdps[site].send("Emulation.setScriptExecutionDisabled", {"value": False})
-                        cdps[site].send("Network.setBlockedURLs", {"urls": []})
+                        cdps[site].send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
                         r = page.reload(timeout=45000, wait_until="domcontentloaded") or r
                         try:
                             page.wait_for_selector("[data-marker='item']", timeout=20000)
@@ -464,7 +477,8 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
     LAST_TRAFFIC.update({site: kb / 1024 for site, kb in traffic.items()})
     for site, b in net.items():  # для сайтов с профилем - реальный трафик по сети, без кэша
         LAST_TRAFFIC[site] = b / 1024 / 1024
-        print(f"Трафик {site} реально по сети (без кэша браузера): ~{b / 1024 / 1024:.2f} МБ")
+        print(f"Трафик {site} реально по сети (без кэша браузера): ~{b / 1024 / 1024:.2f} МБ; "
+              f"ответов из кэша браузера: {cache_hits.get(site, 0)}")
     for site, kb in traffic.items():
         print(f"Трафик {site} за запуск: ~{kb / 1024:.2f} МБ")
         top = sorted(breakdown[site].items(), key=lambda x: -x[1])[:8]
