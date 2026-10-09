@@ -56,6 +56,24 @@ def proxy_exit_info():
               info.get("country"), info.get("city"))
     except Exception as e:
         print(f"Не удалось определить выходной адрес прокси: {str(e)[:100]}")
+    # Проба: обычный запрос (без браузера) к Авито через прокси - отличает блок по IP от блока по отпечатку браузера
+    probe = os.getenv("AVITO_PROBE_URL", "https://www.avito.ru/anapa/kvartiry/prodam?s=104")
+    try:
+        req = urllib.request.Request(probe, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml", "Accept-Language": "ru-RU,ru;q=0.9"})
+        try:
+            r = opener.open(req, timeout=30); code, body = r.status, r.read()
+        except urllib.error.HTTPError as e:
+            code, body = e.code, e.read()
+        text = body.decode("utf-8", "ignore")
+        marker = 'data-marker="item"'
+        api = "itemsApi" in text or '"items":[' in text
+        print("Проба Авито без браузера: HTTP", code, f"{len(body) // 1024} КБ,",
+              "«Доступ ограничен»:", "да" if "Доступ ограничен" in text else "нет", "|",
+              "карточек в HTML:", text.count(marker), "|", "json-данные:", "да" if api else "нет")
+    except Exception as e:
+        print(f"Проба Авито без браузера не удалась: {str(e)[:120]}")
 
 
 def load_searches():
