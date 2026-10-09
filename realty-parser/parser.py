@@ -342,8 +342,18 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                             cdps[site].send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
                     return r, items
 
+                def try_load():
+                    # у Авито сетевая ошибка через прокси (туннель не открылся) - повод сменить IP
+                    if site != "avito":
+                        return load()
+                    try:
+                        return load()
+                    except Exception as e:
+                        print(f"[{site}] сетевая ошибка: {str(e)[:120]}")
+                        return None, []
+
                 try:
-                    resp, items = load()
+                    resp, items = try_load()
                     # 403/429 - блок IP: меняем адрес прокси (если есть ссылка) и пробуем снова
                     tries = int(os.getenv("AVITO_ROTATE_TRIES", "3")) if site == "avito" else 1
                     for attempt in range(tries):
@@ -357,7 +367,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                                 break
                         else:
                             page.wait_for_timeout(int(random.uniform(8, 15) * 1000))
-                        resp, items = load()
+                        resp, items = try_load()
                     # полную загрузку включаем, только если страница открылась нормально, но без карточек
                     if not items and modes[site]["light"] and resp and resp.status == 200:
                         print(f"[{site}] в лёгком режиме карточек нет - перехожу на полную загрузку")
