@@ -32,7 +32,7 @@ tgbot.MAX_SEARCHES = 20
 
 # --- обработка сообщений: только владелец, offset сохраняется ---
 sent = []
-scanner.send_telegram = lambda text: sent.append(text) or True
+scanner.send_telegram = lambda text, chat=None: sent.append(text) or True
 tgbot.fetch_updates = lambda token, offset: [
     {"update_id": 10, "message": {"chat": {"id": 42}, "text": "/add https://www.avito.ru/anapa/doma"}},
     {"update_id": 11, "message": {"chat": {"id": 999}, "text": "/remove 1"}},   # чужой чат

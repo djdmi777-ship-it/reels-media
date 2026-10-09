@@ -72,8 +72,8 @@ def save_json(path, data):
 
 def process_commands(searches):
     """Применяет команды владельца бота к списку поисков. Возвращает True, если список изменился."""
-    token, chat = os.getenv("TG_BOT_TOKEN"), os.getenv("TG_CHAT_ID")
-    if not (token and chat):
+    token, chats = os.getenv("TG_BOT_TOKEN"), chat_ids()
+    if not (token and chats):
         return False
     offset = int(OFFSET.read_text()) if OFFSET.exists() else 0
     try:
@@ -86,13 +86,14 @@ def process_commands(searches):
         offset = max(offset, u["update_id"] + 1)
         msg = u.get("message") or {}
         text = (msg.get("text") or "").strip()
-        if str(msg.get("chat", {}).get("id")) != str(chat) or not text.startswith("/"):
+        chat = str(msg.get("chat", {}).get("id"))
+        if chat not in chats or not text.startswith("/"):
             continue  # чужие чаты и обычный текст игнорируем
         reply, ch = tgbot.handle_command(text, searches)
         changed |= ch
         print(f"Команда бота: {text.split()[0]}")
         try:
-            send_telegram(reply)
+            send_telegram(reply, chat)
         except Exception as e:
             print(f"Не удалось ответить в Telegram: {str(e)[:100]}", file=sys.stderr)
     if updates:
@@ -117,16 +118,31 @@ def fmt(r, prefix=""):
     return f"{prefix}{' | '.join(bits)}\n{r['url']}"
 
 
-def send_telegram(text):
-    token, chat = os.getenv("TG_BOT_TOKEN"), os.getenv("TG_CHAT_ID")
-    if not (token and chat):
+def chat_ids():
+    """Получатели: TG_CHAT_ID и дополнительные TG_EXTRA_CHAT_IDS (через запятую)."""
+    raw = ",".join([os.getenv("TG_CHAT_ID") or "", os.getenv("TG_EXTRA_CHAT_IDS") or ""])
+    return list(dict.fromkeys(c.strip() for c in raw.split(",") if c.strip()))
+
+
+def send_telegram(text, chat=None):
+    """Отправляет в один чат (chat) или всем получателям. Ошибка одного чата не мешает остальным
+    (например, если человек ещё не нажал /start у бота)."""
+    token, chats = os.getenv("TG_BOT_TOKEN"), [chat] if chat else chat_ids()
+    if not (token and chats):
         print("Telegram не настроен (TG_BOT_TOKEN / TG_CHAT_ID), пропускаю отправку.")
         return False
-    data = urllib.parse.urlencode({"chat_id": chat, "text": text,
-                                   "disable_web_page_preview": "true"}).encode()
-    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data)
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.status == 200
+    ok = False
+    for c in chats:
+        data = urllib.parse.urlencode({"chat_id": c, "text": text,
+                                       "disable_web_page_preview": "true"}).encode()
+        req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                ok |= resp.status == 200
+        except Exception as e:
+            print(f"Не удалось отправить в чат ...{str(c)[-3:]}: {str(e)[:80]} "
+                  "(получатель должен сначала написать боту /start)", file=sys.stderr)
+    return ok
 
 
 def notify(blocks):
