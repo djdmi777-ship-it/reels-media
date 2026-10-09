@@ -290,7 +290,12 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                            lambda ev, k=site: net.__setitem__(k, net[k] + ev.get("encodedDataLength", 0)))
                     cdp.send("Network.enable")
                     if os.getenv("NO_BLOCK") != "1":  # NO_BLOCK=1 - грузить всё (диагностика)
-                        cdp.send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
+                        urls_ = BLOCK_URLS
+                        if os.getenv("NO_JS") == "1":
+                            # карточки есть уже в HTML: без скриптов и стилей страница весит в разы меньше
+                            cdp.send("Emulation.setScriptExecutionDisabled", {"value": True})
+                            urls_ = BLOCK_URLS + ["*.js", "*.js?*", "*.css", "*.css?*"]
+                        cdp.send("Network.setBlockedURLs", {"urls": urls_})
                         cdps[site] = cdp
                 else:
                     ctx.route("**/*", _router(modes[site], OWN_DOMAINS.get(site)))
@@ -352,6 +357,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                         # в этом запуске для сайта блокировки не ставим
                         print(f"[{site}] экономный режим без карточек - гружу страницу целиком")
                         full_load[site] = True
+                        cdps[site].send("Emulation.setScriptExecutionDisabled", {"value": False})
                         cdps[site].send("Network.setBlockedURLs", {"urls": []})
                         r = page.reload(timeout=45000, wait_until="domcontentloaded") or r
                         try:
@@ -365,6 +371,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                         # страница сама пропустит; cookie сохранятся в профиле на следующие запуски
                         print(f"[{site}] проверка безопасности - жду до 40 с")
                         if site in cdps:
+                            cdps[site].send("Emulation.setScriptExecutionDisabled", {"value": False})
                             cdps[site].send("Network.setBlockedURLs", {"urls": []})
                             r = page.reload(timeout=45000, wait_until="domcontentloaded") or r
                         for _ in range(20):
