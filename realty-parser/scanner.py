@@ -40,6 +40,24 @@ def load_dotenv(path=HERE / ".env"):
             os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
+def proxy_exit_info():
+    """Печатает, с какого адреса прокси выходит в интернет (без логина и пароля)."""
+    import urllib.request
+    from urllib.parse import urlparse
+    raw = os.getenv("AVITO_PROXY_URL")
+    if not raw:
+        return
+    u = urlparse(raw)
+    print(f"Прокси: {u.hostname}:{u.port}")
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({"https": raw, "http": raw}))
+        info = json.load(opener.open("https://ipinfo.io/json", timeout=25))
+        print("Выходной адрес прокси:", info.get("ip"), "|", info.get("org"), "|",
+              info.get("country"), info.get("city"))
+    except Exception as e:
+        print(f"Не удалось определить выходной адрес прокси: {str(e)[:100]}")
+
+
 def load_searches():
     if SEARCH_STATE.exists():
         return json.loads(SEARCH_STATE.read_text(encoding="utf-8"))
@@ -134,6 +152,8 @@ def main():
         except ValueError as e:
             print(f"Ошибка настройки: {e}. Авито в этом запуске пропускаю.", file=sys.stderr)
             del os.environ["AVITO_PROXY_URL"]
+    if os.getenv("AVITO_PROXY_URL") and any("avito" in x["url"] for x in searches):
+        proxy_exit_info()
     print("Прокси для Авито:", "задан" if os.getenv("AVITO_PROXY_URL") else "НЕ задан",
           "| Telegram:", "задан" if os.getenv("TG_BOT_TOKEN") and os.getenv("TG_CHAT_ID") else "НЕ задан")
     active = searches
