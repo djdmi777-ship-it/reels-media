@@ -1,10 +1,8 @@
 name: Anapa listings scan
 
 on:
-  schedule:
-    # каждые 15 минут с 07:00 до 22:55 по Москве (UTC+3), ночью пауза: экономия минут GitHub и трафика.
-    # Время в cron - UTC. Запуск может запаздывать на 5-20 минут.
-    - cron: "7,22,37,52 4-19 * * *"   # не :00/:30 - на эти минуты у GitHub пик нагрузки и задержки
+  # Рабочий сканер крутится на сервере (realty-parser/deploy, systemd-таймер каждые 15 минут).
+  # Здесь только ручной запуск и тестовые прогоны из ветки - без уведомлений клиентам.
   workflow_dispatch:
   push:                       # тестовые запуски из рабочей ветки
     branches: [claude/adoring-mendel-o29a8z]
@@ -17,7 +15,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 30
     env:
       CHROME_CHANNEL: chrome          # предустановленный на раннере Google Chrome
       BROWSER_PATH: /usr/bin/yandex-browser-stable   # Яндекс Браузер, если установился
@@ -29,8 +27,12 @@ jobs:
       AVITO_ROTATE_TRIES: "8"         # смена IP без ограничений: до 8 адресов за запуск
       AVITO_ROTATE_WAIT: "10"
       AVITO_PER_RUN: "0"              # все поиски Авито в каждом запуске (0 = без очереди)
-      LOOP_MINUTES: "0"               # >0 - один запуск крутится N минут, проверяя каждые 5 минут (для тестов)
+      # >0 - один запуск крутится N минут с паузой LOOP_PAUSE между проверками
+      LOOP_MINUTES: "0"
+      LOOP_PAUSE: "840"               # пауза между проверками, с (+ ~1 мин сама проверка = ~15 мин)
+      PUSH_DRY: "1"                   # 1 - тестовые запуски из ветки без уведомлений клиентам
       TECH_REPORT: ${{ github.event_name == 'push' && '1' || '0' }}  # тест: короткий отчёт о каждой проверке владельцу
+      NO_JS: "0"                      # 1 - Авито без скриптов (проверено: чаще блок 429 и карточек нет - выключено)
       NO_BLOCK: "0"                   # экономия трафика: без рекламы, аналитики, картинок; если выдача не отрисуется - сам загрузит целиком
       AVITO_PROXY_URL: ${{ secrets.AVITO_PROXY_URL }}   # http://user:pass@host:port, пусто = Авито пропускается
     steps:
@@ -63,9 +65,10 @@ jobs:
           end=$((SECONDS + LOOP_MINUTES * 60))
           while true; do
             echo "=== Проверка $(TZ=Europe/Moscow date +%H:%M) МСК ==="
-            python scanner.py || echo "Проход завершился с ошибкой, продолжаю"
+            # PUSH_DRY=1: запуск из ветки без уведомлений клиентам и без записи базы
+            python scanner.py ${{ github.event_name == 'push' && env.PUSH_DRY == '1' && '--dry-run' || '' }} || echo "Проход завершился с ошибкой, продолжаю"
             [ "$SECONDS" -ge "$end" ] && break
-            sleep 300
+            sleep "${LOOP_PAUSE:-300}"
           done
         working-directory: realty-parser
 
