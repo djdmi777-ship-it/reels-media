@@ -114,6 +114,78 @@ def price_num(s):
     return int(d) if d else None
 
 
+SITE_NAMES = {"avito": "Авито", "cian": "ЦИАН", "domclick": "Домклик"}
+
+
+def card(r, search_name="", old_price=None):
+    """Карточка объявления (HTML): источник и поиск, цена крупно, параметры, адрес."""
+    from html import escape
+    src = SITE_NAMES.get(r.get("source"), r.get("source", ""))
+    name = search_name.split(":", 1)[-1].strip() if search_name else ""
+    name = name[:1].upper() + name[1:]
+    head = f"{'💸' if old_price else '🆕'} <b>{escape(src)}{' · ' + escape(name) if name else ''}</b>"
+    price = f"<b>{escape(r['price'])}</b>" if r.get("price") else "цена не указана"
+    n, a = price_num(r.get("price")), r.get("area_m2")
+    try:
+        if n and a and float(a) > 0 and "сот" not in (r.get("title") or ""):
+            price += f"  ·  {round(n / float(a)):,} ₽/м²".replace(",", " ")
+    except ValueError:
+        pass
+    lines = [head]
+    if old_price:
+        o = price_num(old_price)
+        diff = f" ({(n - o) / o:+.0%})" if n and o else ""
+        lines.append(f"Цена изменилась: было {escape(old_price)} → стало {price}{diff}")
+    else:
+        lines.append(price)
+    details = r.get("title") or " · ".join(x for x in (
+        f"{r['rooms']}-комн." if r.get("rooms") else "", f"{r['area_m2']} м²" if r.get("area_m2") else "",
+        f"{r['floor']} эт." if r.get("floor") else "") if x)
+    if details:
+        lines.append(escape(details))
+    if r.get("address"):
+        lines.append("📍 " + escape(r["address"]))
+    return "\n".join(lines)
+
+
+def send_cards(items):
+    """items: [(row, search_name, old_price|None)] - по сообщению на объявление с кнопкой."""
+    import time
+    for r, name, old in items:
+        try:
+            send_telegram(card(r, name, old), button=("Открыть объявление", r["url"]), html=True)
+        except Exception as e:
+            print(f"Не удалось отправить карточку: {str(e)[:100]}", file=sys.stderr)
+        time.sleep(0.5)  # Telegram ограничивает частоту сообщений в один чат
+
+
+HEALTH = STATE.parent / "health.json"
+
+
+def check_health(searches_active, rows, now):
+    """Владельцу (TG_CHAT_ID): «⚠️ Авито не отвечает уже 2 часа» и «✅ снова работает».
+    Сбой = ни одного объявления с сайта за проверку; тревога после 2 часов и 3 проверок подряд."""
+    owner = os.getenv("TG_CHAT_ID")
+    hours = float(os.getenv("ALERT_HOURS", "2"))
+    health = json.loads(HEALTH.read_text()) if HEALTH.exists() else {}
+    got = {r.get("source") or scraper.detect_site(r.get("search") or r["url"]) for r in rows}
+    for site in {scraper.detect_site(x["url"]) for x in searches_active}:
+        h = health.setdefault(site, {})
+        if site in got:
+            if h.get("alerted") and owner:
+                send_telegram(f"✅ {SITE_NAMES.get(site, site)} снова работает.", owner)
+            health[site] = {"last_ok": now.isoformat(timespec="seconds")}
+            continue
+        h.setdefault("first_fail", now.isoformat(timespec="seconds"))
+        h["fails"] = h.get("fails", 0) + 1
+        down = (now - datetime.fromisoformat(h["first_fail"])).total_seconds() / 3600
+        if owner and not h.get("alerted") and down >= hours and h["fails"] >= 3:
+            send_telegram(f"⚠️ {SITE_NAMES.get(site, site)} не отвечает уже {down:.0f} ч "
+                          f"({h['fails']} проверок подряд без объявлений). Проверьте прокси.", owner)
+            h["alerted"] = True
+    save_json(HEALTH, health)
+
+
 def fmt(r, prefix=""):
     bits = [b for b in (r["price"], r["title"], r["address"]) if b]
     return f"{prefix}{' | '.join(bits)}\n{r['url']}"
@@ -125,7 +197,7 @@ def chat_ids():
     return list(dict.fromkeys(c.strip() for c in raw.split(",") if c.strip()))
 
 
-def send_telegram(text, chat=None):
+def send_telegram(text, chat=None, button=None, html=False):
     """Отправляет в один чат (chat) или всем получателям. Ошибка одного чата не мешает остальным
     (например, если человек ещё не нажал /start у бота)."""
     token, chats = os.getenv("TG_BOT_TOKEN"), [chat] if chat else chat_ids()
@@ -134,8 +206,12 @@ def send_telegram(text, chat=None):
         return False
     ok = False
     for c in chats:
-        data = urllib.parse.urlencode({"chat_id": c, "text": text,
-                                       "disable_web_page_preview": "true"}).encode()
+        params = {"chat_id": c, "text": text, "disable_web_page_preview": "true"}
+        if html:
+            params["parse_mode"] = "HTML"
+        if button:  # (подпись, ссылка) - кнопка под сообщением
+            params["reply_markup"] = json.dumps({"inline_keyboard": [[{"text": button[0], "url": button[1]}]]})
+        data = urllib.parse.urlencode(params).encode()
         req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
@@ -248,6 +324,8 @@ def main():
         print("  !", f, file=sys.stderr)
     if not rows:
         print("Ни одного объявления не получено - базу не трогаю.", file=sys.stderr)
+        if not a.dry_run:
+            check_health(active, rows, datetime.now(timezone.utc))
         return 1
 
     seen = json.loads(STATE.read_text()) if STATE.exists() else {}
@@ -324,8 +402,11 @@ def main():
                           os.environ["TG_CHAT_ID"])
         except Exception as e:
             print(f"Техотчёт не отправлен: {e}")
+    names = {x["url"]: x["name"] for x in searches}
     if new or changed:
-        notify([fmt(r, "🆕 ") for r in new] + [fmt(r, f"💸 было {old} -> ") for r, old in changed])
+        send_cards([(r, names.get(r["search"], ""), None) for r in new]
+                   + [(r, names.get(r["search"], ""), old) for r, old in changed])
+    check_health(active, rows, datetime.now(timezone.utc))
     for s in newly_seeded:
         send_telegram(f"Поиск «{s['name']}» подключён: запомнил текущие объявления, "
                       "дальше пришлю только новые.")
