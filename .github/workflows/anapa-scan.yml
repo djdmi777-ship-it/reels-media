@@ -17,14 +17,14 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       CHROME_CHANNEL: chrome          # предустановленный на раннере Google Chrome
       BROWSER_PATH: /usr/bin/yandex-browser-stable   # Яндекс Браузер, если установился
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
       TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
       AVITO_PROXY_ROTATE_URL: ${{ secrets.AVITO_PROXY_ROTATE_URL }}  # ссылка смены IP (необязательно)
-      AVITO_ROTATE_TRIES: "12"        # смена IP без ограничений: до 12 адресов за запуск (~1 МБ, ~5 мин)
+      AVITO_ROTATE_TRIES: "8"         # смена IP без ограничений: до 8 адресов за запуск
       AVITO_ROTATE_WAIT: "10"
       AVITO_PROXY_URL: ${{ secrets.AVITO_PROXY_URL }}   # http://user:pass@host:port, пусто = Авито пропускается
     steps:

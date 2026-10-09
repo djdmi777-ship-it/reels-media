@@ -240,7 +240,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
             print("Браузер:", ua)
         look = {"locale": "ru-RU", "user_agent": ua, "timezone_id": "Europe/Moscow",
                 "viewport": {"width": 1366, "height": 768}}
-        pages_by_site, modes, finished, traffic, breakdown, persistent = {}, {}, {}, {}, {}, []
+        pages_by_site, modes, finished, traffic, breakdown, persistent, cdps = {}, {}, {}, {}, {}, [], {}
         for url in urls:
             site = detect_site(url)
             if site not in pages_by_site:
@@ -261,6 +261,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     cdp = ctx.new_cdp_session(pg)
                     cdp.send("Network.enable")
                     cdp.send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
+                    cdps[site] = cdp
                 else:
                     ctx.route("**/*", _router(modes[site], OWN_DOMAINS.get(site)))
                 pages_by_site[site] = pg
@@ -272,7 +273,24 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     page.wait_for_timeout(4000)
                     page.mouse.wheel(0, 6000)  # дозагрузка ленивых карточек
                     page.wait_for_timeout(1500)
-                    return r, page.evaluate(JS[site])
+                    items = page.evaluate(JS[site])
+                    if not items and "проверка" in page.title().lower():
+                        # «Доступ ограничен: проверка безопасности» - JS-проверка браузера. Снимаем
+                        # блокировку сторонних скриптов (проверке они могут быть нужны) и ждём, пока
+                        # страница сама пропустит; cookie сохранятся в профиле на следующие запуски
+                        print(f"[{site}] проверка безопасности - жду до 40 с")
+                        if site in cdps:
+                            cdps[site].send("Network.setBlockedURLs", {"urls": []})
+                            r = page.reload(timeout=45000, wait_until="domcontentloaded") or r
+                        for _ in range(20):
+                            page.wait_for_timeout(2000)
+                            items = page.evaluate(JS[site])
+                            if items:
+                                print(f"[{site}] проверка пройдена")
+                                break
+                        if site in cdps:
+                            cdps[site].send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
+                    return r, items
 
                 try:
                     resp, items = load()
@@ -280,7 +298,8 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     tries = int(os.getenv("AVITO_ROTATE_TRIES", "3")) if site == "avito" else 1
                     for attempt in range(tries):
                         code = resp.status if resp else 0
-                        if items or code not in (403, 429):
+                        if items or (code not in (403, 429)
+                                     and "доступ ограничен" not in page.title().lower()):
                             break
                         print(f"[{site}] HTTP {code} - попытка {attempt + 1}/{tries}")
                         if site == "avito" and os.getenv("AVITO_PROXY_ROTATE_URL"):
