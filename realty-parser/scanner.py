@@ -26,6 +26,7 @@ STATE = Path(os.getenv("STATE_FILE", HERE / "state" / "seen.json"))
 SEARCHES = Path(os.getenv("SEARCHES_FILE", HERE / "searches.json"))  # стартовый список
 SEARCH_STATE = STATE.parent / "searches.json"  # актуальный список, меняется командами бота
 OFFSET = STATE.parent / "tg_offset.json"
+AVITO_RR = STATE.parent / "avito_rr.json"  # чей черёд среди поисков Авито
 
 
 def load_dotenv(path=HERE / ".env"):
@@ -140,6 +141,17 @@ def main():
         active = [s for s in searches if "avito" not in s["url"]]
         if len(active) != len(searches):
             print("CI без AVITO_PROXY_URL: пропускаю поиски Авито")
+    # Авито блокирует IP после 1-2 запросов подряд, поэтому за запуск проверяем AVITO_PER_RUN
+    # поисков Авито по кругу (остальные - в следующих запусках)
+    per_run = int(os.getenv("AVITO_PER_RUN", "1"))
+    avito = [s for s in active if "avito" in s["url"]]
+    if per_run > 0 and len(avito) > per_run:
+        rr = int(AVITO_RR.read_text()) if AVITO_RR.exists() else 0
+        pick = [avito[(rr + i) % len(avito)] for i in range(per_run)]
+        active = [s for s in active if "avito" not in s["url"]] + pick
+        print("Авито в этом запуске:", ", ".join(s["name"] for s in pick))
+        if not a.dry_run:
+            save_json(AVITO_RR, (rr + per_run) % len(avito))
     if not active:
         print("Поисков нет - нечего сканировать.")
         return 0
