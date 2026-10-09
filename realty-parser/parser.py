@@ -260,8 +260,9 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                 if site in PROFILE_SITES:
                     cdp = ctx.new_cdp_session(pg)
                     cdp.send("Network.enable")
-                    cdp.send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
-                    cdps[site] = cdp
+                    if os.getenv("NO_BLOCK") != "1":  # NO_BLOCK=1 - грузить всё (диагностика)
+                        cdp.send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
+                        cdps[site] = cdp
                 else:
                     ctx.route("**/*", _router(modes[site], OWN_DOMAINS.get(site)))
                 pages_by_site[site] = pg
