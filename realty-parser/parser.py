@@ -269,19 +269,41 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
             page = pages_by_site[site]
             for n in range(1, pages + 1):
                 target = page_url(site, url, n)
+                def title():
+                    try:
+                        return page.title().lower()
+                    except Exception:
+                        return ""
+
+                def cards():
+                    # страница может сама перейти (редирект/перезагрузка скриптом) - ждём и читаем заново
+                    for _ in range(4):
+                        try:
+                            return page.evaluate(JS[site])
+                        except Exception as e:
+                            if "context was destroyed" not in str(e) and "navigat" not in str(e):
+                                raise
+                            print(f"[{site}] страница перешла на {page.url[:100]} - жду загрузку")
+                            try:
+                                page.wait_for_load_state("domcontentloaded", timeout=30000)
+                            except Exception:
+                                pass
+                            page.wait_for_timeout(3000)
+                    return []
+
                 def load():
                     r = page.goto(target, timeout=45000, wait_until="domcontentloaded")
                     page.wait_for_timeout(4000)
                     page.mouse.wheel(0, 6000)  # дозагрузка ленивых карточек
                     page.wait_for_timeout(1500)
-                    items = page.evaluate(JS[site])
-                    if not items and site == "avito" and "доступ ограничен" not in page.title().lower():
+                    items = cards()
+                    if not items and site == "avito" and "доступ ограничен" not in title():
                         try:  # выдача может дорисовываться скриптами позже
                             page.wait_for_selector("[data-marker='item']", timeout=15000)
-                            items = page.evaluate(JS[site])
+                            items = cards()
                         except Exception:
                             pass
-                    if not items and "проверка" in page.title().lower():
+                    if not items and "проверка" in title():
                         # «Доступ ограничен: проверка безопасности» - JS-проверка браузера. Снимаем
                         # блокировку сторонних скриптов (проверке они могут быть нужны) и ждём, пока
                         # страница сама пропустит; cookie сохранятся в профиле на следующие запуски
@@ -291,7 +313,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                             r = page.reload(timeout=45000, wait_until="domcontentloaded") or r
                         for _ in range(20):
                             page.wait_for_timeout(2000)
-                            items = page.evaluate(JS[site])
+                            items = cards()
                             if items:
                                 print(f"[{site}] проверка пройдена")
                                 break
@@ -306,7 +328,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     for attempt in range(tries):
                         code = resp.status if resp else 0
                         if items or (code not in (403, 429)
-                                     and "доступ ограничен" not in page.title().lower()):
+                                     and "доступ ограничен" not in title()):
                             break
                         print(f"[{site}] HTTP {code} - попытка {attempt + 1}/{tries}")
                         if site == "avito" and os.getenv("AVITO_PROXY_ROTATE_URL"):

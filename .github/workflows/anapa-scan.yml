@@ -26,7 +26,7 @@ jobs:
       AVITO_PROXY_ROTATE_URL: ${{ secrets.AVITO_PROXY_ROTATE_URL }}  # ссылка смены IP (необязательно)
       AVITO_ROTATE_TRIES: "8"         # смена IP без ограничений: до 8 адресов за запуск
       AVITO_ROTATE_WAIT: "10"
-      NO_BLOCK: "1"                   # временно: Авито грузится целиком (проверка отрисовки выдачи)
+      NO_BLOCK: "1"                   # Авито грузится целиком, как обычный браузер (трафик мобильного прокси безлимитный)
       AVITO_PROXY_URL: ${{ secrets.AVITO_PROXY_URL }}   # http://user:pass@host:port, пусто = Авито пропускается
     steps:
       - uses: actions/checkout@v5
