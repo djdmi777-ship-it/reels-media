@@ -255,7 +255,7 @@ def main():
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     seeded = {s["url"] for s in searches if s.get("seeded")}
 
-    new, changed, quiet, dupes = [], [], 0, 0
+    new, changed, quiet, dupes, stale = [], [], 0, 0, 0
     for r in rows:  # отпечатки для уже известных ссылок (база старше этой проверки)
         old = seen.get(r["url"])
         if old is not None and not old.get("address"):
@@ -276,6 +276,8 @@ def main():
                 fps.add(fp)
             if was_dupe:
                 dupes += 1  # тот же объект под другой ссылкой - не дублируем уведомление
+            elif r.get("posted") == "old":
+                stale += 1  # старое объявление впервые попало в выдачу (поднято, VIP) - не новое
             elif r["search"] in seeded:
                 new.append(r)
                 seen[r["url"]]["notified"] = True
@@ -293,7 +295,7 @@ def main():
         s["seeded"] = True
 
     summary = (f"Сканирование: {len(rows)} в выдаче, новых {len(new)}, "
-               f"цена изменилась {len(changed)}, запомнено без уведомления {quiet}, повторов объекта {dupes}")
+               f"цена изменилась {len(changed)}, запомнено без уведомления {quiet}, повторов объекта {dupes}, старых (не сегодня) {stale}")
     print(summary)
     if new:
         save(new, str(HERE / "new_listings.csv"))
@@ -317,7 +319,7 @@ def main():
         tz = timezone(timedelta(hours=3))
         try:
             send_telegram(f"⚙️ {datetime.now(tz):%H:%M} проверка: " + "; ".join(parts)
-                          + f". Новых {len(new)}, повторов отсеяно {dupes}"
+                          + f". Новых {len(new)}, повторов отсеяно {dupes}, старых отсеяно {stale}"
                           + (f". Проблемы: {'; '.join(failures)[:300]}" if failures else ""),
                           os.environ["TG_CHAT_ID"])
         except Exception as e:

@@ -77,6 +77,21 @@ def pick_title(raw):
     return re.sub(r"\s+", " ", (m.group(0) if m else raw["title"])).strip()
 
 
+MONTHS = "января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря"
+FRESH_RE = re.compile(r"только что|\d+\s*(?:секунд|минут|час)\w*\s+назад|час назад|сегодня", re.I)
+OLD_RE = re.compile(r"вчера|\d+\s*(?:дн|день|недел|месяц)\w*\s+назад|неделю назад|месяц назад|"
+                    rf"\b\d{{1,2}}\s+(?:{MONTHS})\b", re.I)
+
+
+def posted(text):
+    """Дата публикации из текста карточки: 'fresh' (сегодня/часы назад), 'old' (вчера и раньше) или ''."""
+    if FRESH_RE.search(text or ""):
+        return "fresh"
+    if OLD_RE.search(text or ""):
+        return "old"
+    return ""
+
+
 def normalize(site, raw):
     text = " ".join([raw["title"], raw["text"]])
     area = re.search(r"(\d+[.,]?\d*)\s*м²", text) or re.search(r"(\d+[.,]?\d*)\s*сот", text)
@@ -96,6 +111,7 @@ def normalize(site, raw):
         "rooms": rooms.group(1) if rooms else "",
         "floor": floor.group(1) if floor else "",
         "address": re.sub(r"\s+", " ", raw["address"]).strip(),
+        "posted": posted(raw["text"]),
     }
 
 
