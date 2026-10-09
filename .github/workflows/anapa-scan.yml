@@ -17,7 +17,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 75
     env:
       CHROME_CHANNEL: chrome          # предустановленный на раннере Google Chrome
       BROWSER_PATH: /usr/bin/yandex-browser-stable   # Яндекс Браузер, если установился
@@ -27,6 +27,8 @@ jobs:
       AVITO_ROTATE_TRIES: "8"         # смена IP без ограничений: до 8 адресов за запуск
       AVITO_ROTATE_WAIT: "10"
       AVITO_PER_RUN: "0"              # все поиски Авито в каждом запуске (0 = без очереди)
+      # тест: запуск из ветки крутится ~55 минут и проверяет всё каждые 5 минут; по расписанию - один проход
+      LOOP_MINUTES: ${{ github.event_name == 'push' && '55' || '0' }}
       NO_BLOCK: "1"                   # Авито грузится целиком, как обычный браузер (трафик мобильного прокси безлимитный)
       AVITO_PROXY_URL: ${{ secrets.AVITO_PROXY_URL }}   # http://user:pass@host:port, пусто = Авито пропускается
     steps:
@@ -55,7 +57,14 @@ jobs:
           restore-keys: anapa-state-
 
       - name: Scan
-        run: python scanner.py
+        run: |
+          end=$((SECONDS + LOOP_MINUTES * 60))
+          while true; do
+            echo "=== Проверка $(TZ=Europe/Moscow date +%H:%M) МСК ==="
+            python scanner.py || echo "Проход завершился с ошибкой, продолжаю"
+            [ "$SECONDS" -ge "$end" ] && break
+            sleep 300
+          done
         working-directory: realty-parser
 
       - name: Save seen-listings state
