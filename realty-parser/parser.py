@@ -193,7 +193,8 @@ def _traffic(requests, breakdown=None):
 def scrape(urls, pages, headless=True, delay=(3, 6)):
     rows, seen, failures = [], set(), []
     proxy = os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")
-    launch = {"headless": headless, "args": ["--no-sandbox"]}
+    # не сообщать сайту, что браузером управляет программа
+    launch = {"headless": headless, "args": ["--no-sandbox", "--disable-blink-features=AutomationControlled"]}
     if proxy:
         launch["proxy"] = {"server": proxy}
     if os.getenv("CHROME_CHANNEL"):  # на GitHub Actions: предустановленный google-chrome
@@ -202,6 +203,13 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
         launch["executable_path"] = "/opt/pw-browsers/chromium"
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch)
+        # User-Agent должен совпадать с реальной версией браузера (её же сайт видит в Client Hints),
+        # иначе расхождение выдаёт автоматику
+        major = browser.version.split(".")[0]
+        ua = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+              f"Chrome/{major}.0.0.0 Safari/537.36")
+        look = {"locale": "ru-RU", "user_agent": ua, "timezone_id": "Europe/Moscow",
+                "viewport": {"width": 1366, "height": 768}}
         pages_by_site, modes, finished, traffic, breakdown, persistent = {}, {}, {}, {}, {}, []
         for url in urls:
             site = detect_site(url)
@@ -210,10 +218,10 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                 if site in PROFILE_SITES:
                     opts = {k: v for k, v in launch.items() if k != "proxy"}
                     ctx = p.chromium.launch_persistent_context(
-                        str(PROFILE_DIR / site), locale="ru-RU", user_agent=UA, **opts, **kw)
+                        str(PROFILE_DIR / site), **look, **opts, **kw)
                     persistent.append(ctx)
                 else:
-                    ctx = browser.new_context(locale="ru-RU", user_agent=UA, **kw)
+                    ctx = browser.new_context(**look, **kw)
                 light = os.getenv("LIGHT_MODE", "1") == "1" and site not in OWN_DOMAINS
                 modes[site] = {"light": light and site not in PROFILE_SITES}
                 finished[site], traffic[site], breakdown[site] = [], 0, {}
