@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 15
     env:
       CHROME_CHANNEL: chrome          # предустановленный на раннере Google Chrome
+      BROWSER_PATH: /usr/bin/yandex-browser-stable   # Яндекс Браузер, если установился
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
       TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
       AVITO_PROXY_ROTATE_URL: ${{ secrets.AVITO_PROXY_ROTATE_URL }}  # ссылка смены IP (необязательно)
@@ -32,6 +33,15 @@ jobs:
           cache: pip
           cache-dependency-path: realty-parser/requirements.txt
       - run: pip install -r realty-parser/requirements.txt
+
+      - name: Install Yandex Browser
+        continue-on-error: true       # не поставился - работаем на Google Chrome
+        run: |
+          curl -fsSL https://repo.yandex.ru/yandex-browser/YANDEX-BROWSER-KEY.GPG | sudo gpg --dearmor -o /usr/share/keyrings/yandex-browser.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/yandex-browser.gpg] https://repo.yandex.ru/yandex-browser/deb stable main" | sudo tee /etc/apt/sources.list.d/yandex-browser.list
+          sudo apt-get update -o Dir::Etc::sourcelist=sources.list.d/yandex-browser.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
+          sudo apt-get install -y --no-install-recommends yandex-browser-stable
+          ls -l /usr/bin/yandex-browser* || true
 
       - name: Restore seen-listings state
         uses: actions/cache/restore@v4

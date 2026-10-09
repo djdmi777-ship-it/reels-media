@@ -214,7 +214,12 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
     launch = {"headless": headless, "args": ["--no-sandbox", "--disable-blink-features=AutomationControlled"]}
     if proxy:
         launch["proxy"] = {"server": proxy}
-    if os.getenv("CHROME_CHANNEL"):  # на GitHub Actions: предустановленный google-chrome
+    own_ua = True
+    if os.getenv("BROWSER_PATH") and os.path.exists(os.environ["BROWSER_PATH"]):
+        # другой браузер на движке Chromium (например, Яндекс Браузер); его родной User-Agent не трогаем
+        launch["executable_path"] = os.environ["BROWSER_PATH"]
+        own_ua = False
+    elif os.getenv("CHROME_CHANNEL"):  # на GitHub Actions: предустановленный google-chrome
         launch["channel"] = os.getenv("CHROME_CHANNEL")
     elif os.path.exists("/opt/pw-browsers/chromium"):
         launch["executable_path"] = "/opt/pw-browsers/chromium"
@@ -225,6 +230,11 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
         major = browser.version.split(".")[0]
         ua = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
               f"Chrome/{major}.0.0.0 Safari/537.36")
+        if not own_ua:  # родной UA браузера, только без слова Headless
+            tmp = browser.new_page()
+            ua = tmp.evaluate("navigator.userAgent").replace("HeadlessChrome", "Chrome")
+            tmp.close()
+            print("Браузер:", ua)
         look = {"locale": "ru-RU", "user_agent": ua, "timezone_id": "Europe/Moscow",
                 "viewport": {"width": 1366, "height": 768}}
         pages_by_site, modes, finished, traffic, breakdown, persistent = {}, {}, {}, {}, {}, []
@@ -235,7 +245,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                 if site in PROFILE_SITES:
                     opts = {k: v for k, v in launch.items() if k != "proxy"}
                     ctx = p.chromium.launch_persistent_context(
-                        str(PROFILE_DIR / site), **look, **opts, **kw)
+                        str(PROFILE_DIR / (site if own_ua else site + "-yandex")), **look, **opts, **kw)
                     persistent.append(ctx)
                 else:
                     ctx = browser.new_context(**look, **kw)
