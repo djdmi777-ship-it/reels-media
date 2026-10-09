@@ -40,6 +40,57 @@ def load_dotenv(path=HERE / ".env"):
             os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
+def avito_proxy_ready():
+    """Проверяет, пускает ли Авито через прокси (обычным запросом, ~30 КБ). Если нет и задана
+    AVITO_PROXY_ROTATE_URL (ссылка смены IP из кабинета мобильного прокси) - меняет адрес и пробует снова.
+    Возвращает True, если Авито отвечает нормально."""
+    import time
+    import urllib.error
+    import urllib.request
+    from urllib.parse import urlparse
+    raw = os.getenv("AVITO_PROXY_URL")
+    if not raw:
+        return False
+    u = urlparse(raw)
+    print(f"Прокси: {u.hostname}:{u.port}")
+    rotate = os.getenv("AVITO_PROXY_ROTATE_URL")
+    attempts = int(os.getenv("AVITO_ROTATE_TRIES", "4")) if rotate else 1
+    probe = os.getenv("AVITO_PROBE_URL", "https://www.avito.ru/anapa/kvartiry/prodam?s=104")
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({"https": raw, "http": raw}))
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                             "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+               "Accept": "text/html,application/xhtml+xml", "Accept-Language": "ru-RU,ru;q=0.9"}
+    for i in range(1, attempts + 1):
+        try:
+            info = json.load(opener.open("https://ipinfo.io/json", timeout=25))
+            print(f"[{i}] Выходной адрес: {info.get('ip')} | {info.get('org')} | {info.get('country')} {info.get('city')}")
+        except Exception as e:
+            print(f"[{i}] Не удалось определить адрес прокси: {str(e)[:80]}")
+        try:
+            try:
+                r = opener.open(urllib.request.Request(probe, headers=headers), timeout=30)
+                code, body = r.status, r.read()
+            except urllib.error.HTTPError as e:
+                code, body = e.code, e.read()
+            text = body.decode("utf-8", "ignore")
+            blocked = code != 200 or "Доступ ограничен" in text
+            print(f"[{i}] Проба Авито: HTTP {code}, {len(body) // 1024} КБ, "
+                  f"{'ЗАБЛОКИРОВАН' if blocked else 'пускает'}")
+            if not blocked:
+                return True
+        except Exception as e:
+            print(f"[{i}] Проба Авито не удалась: {str(e)[:100]}")
+        if rotate and i < attempts:
+            try:
+                r = urllib.request.urlopen(rotate, timeout=30)
+                print(f"[{i}] Смена IP запрошена: HTTP {r.status}, {r.read(200).decode('utf-8', 'ignore')[:80]!r}")
+            except Exception as e:
+                print(f"[{i}] Смена IP не удалась: {str(e)[:100]}")
+                return False
+            time.sleep(int(os.getenv("AVITO_ROTATE_WAIT", "25")))
+    return False
+
+
 def load_searches():
     if SEARCH_STATE.exists():
         return json.loads(SEARCH_STATE.read_text(encoding="utf-8"))
@@ -134,9 +185,15 @@ def main():
         except ValueError as e:
             print(f"Ошибка настройки: {e}. Авито в этом запуске пропускаю.", file=sys.stderr)
             del os.environ["AVITO_PROXY_URL"]
+    avito_ok = True
+    if os.getenv("AVITO_PROXY_URL") and any("avito" in x["url"] for x in searches):
+        avito_ok = avito_proxy_ready()
     print("Прокси для Авито:", "задан" if os.getenv("AVITO_PROXY_URL") else "НЕ задан",
           "| Telegram:", "задан" if os.getenv("TG_BOT_TOKEN") and os.getenv("TG_CHAT_ID") else "НЕ задан")
     active = searches
+    if not avito_ok:
+        print("Авито через прокси сейчас недоступен - пропускаю Авито в этом запуске (трафик не тратим)")
+        active = [x for x in active if "avito" not in x["url"]]
     if os.getenv("CI") and not os.getenv("AVITO_PROXY_URL"):
         active = [s for s in searches if "avito" not in s["url"]]
         if len(active) != len(searches):
