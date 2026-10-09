@@ -1,12 +1,10 @@
 name: Anapa listings scan
 
 on:
-  # Рабочий сканер крутится на сервере (realty-parser/deploy, systemd-таймер каждые 15 минут).
-  # Здесь только ручной запуск и тестовые прогоны из ветки - без уведомлений клиентам.
+  # Рабочий сканер крутится на сервере (realty-parser/deploy, systemd-таймер).
+  # Здесь только ручной запуск для отладки. Автозапуски отключены: тест и сервер ходят через один
+  # прокси, и смена IP в тесте ломает проверку на сервере.
   workflow_dispatch:
-  push:                       # тестовые запуски из рабочей ветки
-    branches: [claude/adoring-mendel-o29a8z]
-    paths: ["realty-parser/**", ".github/workflows/anapa-scan.yml"]
 
 concurrency:
   group: anapa-scan
