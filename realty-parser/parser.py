@@ -137,7 +137,8 @@ BLOCK_URLS = [
     "*.jpg*", "*.jpeg*", "*.png*", "*.webp*", "*.gif*", "*.svg*", "*.ico*", "*.woff*", "*.ttf*",
     "*.mp4*", "*img.avito.st*", "*googletagmanager*", "*google-analytics*", "*doubleclick*",
     "*mc.yandex*", "*yandex.ru/ads*", "*an.yandex*", "*buzzoola*", "*mail.ru*", "*vk.com*",
-    "*top-fwz1*", "*adfox*", "*criteo*", "*tiktok*", "*facebook*", "*uxfeedback*", "*hcaptcha*",
+    "*top-fwz1*", "*adfox*", "*criteo*", "*tiktok*", "*facebook*", "*uxfeedback*",
+    "*browser.yandex*", "*yastatic.net*", "*sba.yandex*",  # служебные запросы Яндекс Браузера
 ]
 
 
@@ -214,7 +215,10 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
     rows, seen, failures = [], set(), []
     proxy = os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")
     # не сообщать сайту, что браузером управляет программа
-    launch = {"headless": headless, "args": ["--no-sandbox", "--disable-blink-features=AutomationControlled"]}
+    launch = {"headless": headless, "args": ["--no-sandbox", "--disable-blink-features=AutomationControlled",
+                                          # без фоновых обновлений/синхронизации браузера через прокси
+                                          "--disable-background-networking", "--disable-component-update",
+                                          "--no-first-run", "--no-default-browser-check"]}
     if proxy:
         launch["proxy"] = {"server": proxy}
     own_ua = True
@@ -241,6 +245,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
         look = {"locale": "ru-RU", "user_agent": ua, "timezone_id": "Europe/Moscow",
                 "viewport": {"width": 1366, "height": 768}}
         pages_by_site, modes, finished, traffic, breakdown, persistent, cdps = {}, {}, {}, {}, {}, [], {}
+        full_load = {}  # сайты, где экономный режим не сработал и страница грузится целиком
         for url in urls:
             site = detect_site(url)
             if site not in pages_by_site:
@@ -303,6 +308,19 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                             items = cards()
                         except Exception:
                             pass
+                    if (not items and site in cdps and not full_load.get(site)
+                            and "доступ ограничен" not in title() and "проверка" not in title()):
+                        # экономный режим не отрисовал выдачу - один раз грузим целиком и дальше
+                        # в этом запуске для сайта блокировки не ставим
+                        print(f"[{site}] экономный режим без карточек - гружу страницу целиком")
+                        full_load[site] = True
+                        cdps[site].send("Network.setBlockedURLs", {"urls": []})
+                        r = page.reload(timeout=45000, wait_until="domcontentloaded") or r
+                        try:
+                            page.wait_for_selector("[data-marker='item']", timeout=20000)
+                        except Exception:
+                            pass
+                        items = cards()
                     if not items and "проверка" in title():
                         # «Доступ ограничен: проверка безопасности» - JS-проверка браузера. Снимаем
                         # блокировку сторонних скриптов (проверке они могут быть нужны) и ждём, пока
@@ -317,7 +335,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                             if items:
                                 print(f"[{site}] проверка пройдена")
                                 break
-                        if site in cdps:
+                        if site in cdps and not full_load.get(site):
                             cdps[site].send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
                     return r, items
 
