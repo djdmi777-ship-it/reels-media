@@ -32,7 +32,7 @@ tgbot.MAX_SEARCHES = 20
 
 # --- обработка сообщений: только владелец, offset сохраняется ---
 sent = []
-scanner.send_telegram = lambda text: sent.append(text) or True
+scanner.send_telegram = lambda text, chat=None, **kw: sent.append(text) or True
 tgbot.fetch_updates = lambda token, offset: [
     {"update_id": 10, "message": {"chat": {"id": 42}, "text": "/add https://www.avito.ru/anapa/doma"}},
     {"update_id": 11, "message": {"chat": {"id": 999}, "text": "/remove 1"}},   # чужой чат
@@ -54,7 +54,7 @@ scanner.save = lambda rows, path: None
 scanner.SEARCH_STATE.write_text(json.dumps(searches, ensure_ascii=False))
 tgbot.fetch_updates = lambda token, offset: []
 notified = []
-scanner.notify = lambda blocks: notified.extend(blocks)
+scanner.send_cards = lambda items: notified.extend(scanner.card(r, n, o) for r, n, o in items)
 sent.clear()
 sys.argv = ["scanner.py"]
 assert scanner.main() == 0

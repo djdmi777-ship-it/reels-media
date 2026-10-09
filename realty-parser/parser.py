@@ -77,6 +77,21 @@ def pick_title(raw):
     return re.sub(r"\s+", " ", (m.group(0) if m else raw["title"])).strip()
 
 
+MONTHS = "января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря"
+FRESH_RE = re.compile(r"только что|\d+\s*(?:секунд|минут|час)\w*\s+назад|час назад|сегодня", re.I)
+OLD_RE = re.compile(r"вчера|\d+\s*(?:дн|день|недел|месяц)\w*\s+назад|неделю назад|месяц назад|"
+                    rf"\b\d{{1,2}}\s+(?:{MONTHS})\b", re.I)
+
+
+def posted(text):
+    """Дата публикации из текста карточки: 'fresh' (сегодня/часы назад), 'old' (вчера и раньше) или ''."""
+    if FRESH_RE.search(text or ""):
+        return "fresh"
+    if OLD_RE.search(text or ""):
+        return "old"
+    return ""
+
+
 def normalize(site, raw):
     text = " ".join([raw["title"], raw["text"]])
     area = re.search(r"(\d+[.,]?\d*)\s*м²", text) or re.search(r"(\d+[.,]?\d*)\s*сот", text)
@@ -96,6 +111,7 @@ def normalize(site, raw):
         "rooms": rooms.group(1) if rooms else "",
         "floor": floor.group(1) if floor else "",
         "address": re.sub(r"\s+", " ", raw["address"]).strip(),
+        "posted": posted(raw["text"]),
     }
 
 
@@ -137,8 +153,51 @@ BLOCK_URLS = [
     "*.jpg*", "*.jpeg*", "*.png*", "*.webp*", "*.gif*", "*.svg*", "*.ico*", "*.woff*", "*.ttf*",
     "*.mp4*", "*img.avito.st*", "*googletagmanager*", "*google-analytics*", "*doubleclick*",
     "*mc.yandex*", "*yandex.ru/ads*", "*an.yandex*", "*buzzoola*", "*mail.ru*", "*vk.com*",
-    "*top-fwz1*", "*adfox*", "*criteo*", "*tiktok*", "*facebook*", "*uxfeedback*", "*hcaptcha*",
+    "*top-fwz1*", "*adfox*", "*criteo*", "*tiktok*", "*facebook*", "*uxfeedback*",
+    "*browser.yandex*", "*yastatic.net*", "*sba.yandex*",  # служебные запросы Яндекс Браузера
 ]
+
+
+LAST_TRAFFIC = {}  # МБ по сайтам за последний scrape() - для техотчёта
+
+
+def rotate_proxy_ip():
+    """Просит мобильный прокси сменить IP (ссылка из кабинета, секрет AVITO_PROXY_ROTATE_URL).
+    Возвращает True, если запрос выполнен. В лог идёт только хост ссылки: путь содержит ключ."""
+    import time
+    import urllib.request
+    raw = (os.getenv("AVITO_PROXY_ROTATE_URL") or "").strip()
+    if not raw:
+        return False
+    host = urlparse(raw).hostname
+    if host and host.endswith("mobileproxy.space") and "format=" not in raw:
+        raw += ("&" if "?" in raw else "?") + "format=json"  # без этого отдаётся HTML-страница
+    try:
+        # поставщик просит при программном вызове указывать User-Agent браузера
+        req = urllib.request.Request(raw, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                                                                 "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"})
+        r = urllib.request.urlopen(req, timeout=30)
+        print(f"Смена IP запрошена ({host}): HTTP {r.status}, ответ: {r.read(160).decode('utf-8', 'ignore')[:100]!r}")
+    except Exception as e:
+        print(f"Смена IP не удалась (хост «{host}», ссылка должна начинаться с https://): {str(e)[:100]}")
+        return False
+    time.sleep(int(os.getenv("AVITO_ROTATE_WAIT", "20")))
+    print("Адрес прокси после смены:", proxy_exit_ip())
+    return True
+
+
+def proxy_exit_ip():
+    """Выходной IP прокси Авито (для лога: видно, сменился ли адрес)."""
+    import json
+    import urllib.request
+    raw = os.getenv("AVITO_PROXY_URL")
+    if not raw:
+        return "-"
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({"https": raw, "http": raw}))
+        return json.load(opener.open("https://ipinfo.io/json", timeout=25)).get("ip")
+    except Exception as e:
+        return f"не определён ({str(e)[:60]})"
 
 
 def _router(mode, own=None):
@@ -174,16 +233,38 @@ def _traffic(requests, breakdown=None):
 def scrape(urls, pages, headless=True, delay=(3, 6)):
     rows, seen, failures = [], set(), []
     proxy = os.getenv("HTTPS_PROXY") or os.getenv("https_proxy")
-    launch = {"headless": headless, "args": ["--no-sandbox"]}
+    # не сообщать сайту, что браузером управляет программа
+    launch = {"headless": headless, "args": ["--no-sandbox", "--disable-blink-features=AutomationControlled",
+                                          # без фоновых обновлений/синхронизации браузера через прокси
+                                          "--disable-background-networking", "--disable-component-update",
+                                          "--no-first-run", "--no-default-browser-check"]}
     if proxy:
         launch["proxy"] = {"server": proxy}
-    if os.getenv("CHROME_CHANNEL"):  # на GitHub Actions: предустановленный google-chrome
+    own_ua = True
+    if os.getenv("BROWSER_PATH") and os.path.exists(os.environ["BROWSER_PATH"]):
+        # другой браузер на движке Chromium (например, Яндекс Браузер); его родной User-Agent не трогаем
+        launch["executable_path"] = os.environ["BROWSER_PATH"]
+        own_ua = False
+    elif os.getenv("CHROME_CHANNEL"):  # на GitHub Actions: предустановленный google-chrome
         launch["channel"] = os.getenv("CHROME_CHANNEL")
     elif os.path.exists("/opt/pw-browsers/chromium"):
         launch["executable_path"] = "/opt/pw-browsers/chromium"
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch)
-        pages_by_site, modes, finished, traffic, breakdown, persistent = {}, {}, {}, {}, {}, []
+        # User-Agent должен совпадать с реальной версией браузера (её же сайт видит в Client Hints),
+        # иначе расхождение выдаёт автоматику
+        major = browser.version.split(".")[0]
+        ua = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+              f"Chrome/{major}.0.0.0 Safari/537.36")
+        if not own_ua:  # родной UA браузера, только без слова Headless
+            tmp = browser.new_page()
+            ua = tmp.evaluate("navigator.userAgent").replace("HeadlessChrome", "Chrome")
+            tmp.close()
+            print("Браузер:", ua)
+        look = {"locale": "ru-RU", "user_agent": ua, "timezone_id": "Europe/Moscow",
+                "viewport": {"width": 1366, "height": 768}}
+        pages_by_site, modes, finished, traffic, breakdown, persistent, cdps = {}, {}, {}, {}, {}, [], {}
+        full_load = {}  # сайты, где экономный режим не сработал и страница грузится целиком
         for url in urls:
             site = detect_site(url)
             if site not in pages_by_site:
@@ -191,10 +272,10 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                 if site in PROFILE_SITES:
                     opts = {k: v for k, v in launch.items() if k != "proxy"}
                     ctx = p.chromium.launch_persistent_context(
-                        str(PROFILE_DIR / site), locale="ru-RU", user_agent=UA, **opts, **kw)
+                        str(PROFILE_DIR / (site if own_ua else site + "-yandex")), **look, **opts, **kw)
                     persistent.append(ctx)
                 else:
-                    ctx = browser.new_context(locale="ru-RU", user_agent=UA, **kw)
+                    ctx = browser.new_context(**look, **kw)
                 light = os.getenv("LIGHT_MODE", "1") == "1" and site not in OWN_DOMAINS
                 modes[site] = {"light": light and site not in PROFILE_SITES}
                 finished[site], traffic[site], breakdown[site] = [], 0, {}
@@ -203,30 +284,106 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                 if site in PROFILE_SITES:
                     cdp = ctx.new_cdp_session(pg)
                     cdp.send("Network.enable")
-                    cdp.send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
+                    if os.getenv("NO_BLOCK") != "1":  # NO_BLOCK=1 - грузить всё (диагностика)
+                        cdp.send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
+                        cdps[site] = cdp
                 else:
                     ctx.route("**/*", _router(modes[site], OWN_DOMAINS.get(site)))
                 pages_by_site[site] = pg
             page = pages_by_site[site]
             for n in range(1, pages + 1):
                 target = page_url(site, url, n)
+                def title():
+                    try:
+                        return page.title().lower()
+                    except Exception:
+                        return ""
+
+                def cards():
+                    # страница может сама перейти (редирект/перезагрузка скриптом) - ждём и читаем заново
+                    for _ in range(4):
+                        try:
+                            return page.evaluate(JS[site])
+                        except Exception as e:
+                            if "context was destroyed" not in str(e) and "navigat" not in str(e):
+                                raise
+                            print(f"[{site}] страница перешла на {page.url[:100]} - жду загрузку")
+                            try:
+                                page.wait_for_load_state("domcontentloaded", timeout=30000)
+                            except Exception:
+                                pass
+                            page.wait_for_timeout(3000)
+                    return []
+
                 def load():
                     r = page.goto(target, timeout=45000, wait_until="domcontentloaded")
                     page.wait_for_timeout(4000)
                     page.mouse.wheel(0, 6000)  # дозагрузка ленивых карточек
                     page.wait_for_timeout(1500)
-                    return r, page.evaluate(JS[site])
+                    items = cards()
+                    if not items and site == "avito" and "доступ ограничен" not in title():
+                        try:  # выдача может дорисовываться скриптами позже
+                            page.wait_for_selector("[data-marker='item']", timeout=15000)
+                            items = cards()
+                        except Exception:
+                            pass
+                    if (not items and site in cdps and not full_load.get(site)
+                            and "доступ ограничен" not in title() and "проверка" not in title()):
+                        # экономный режим не отрисовал выдачу - один раз грузим целиком и дальше
+                        # в этом запуске для сайта блокировки не ставим
+                        print(f"[{site}] экономный режим без карточек - гружу страницу целиком")
+                        full_load[site] = True
+                        cdps[site].send("Network.setBlockedURLs", {"urls": []})
+                        r = page.reload(timeout=45000, wait_until="domcontentloaded") or r
+                        try:
+                            page.wait_for_selector("[data-marker='item']", timeout=20000)
+                        except Exception:
+                            pass
+                        items = cards()
+                    if not items and "проверка" in title():
+                        # «Доступ ограничен: проверка безопасности» - JS-проверка браузера. Снимаем
+                        # блокировку сторонних скриптов (проверке они могут быть нужны) и ждём, пока
+                        # страница сама пропустит; cookie сохранятся в профиле на следующие запуски
+                        print(f"[{site}] проверка безопасности - жду до 40 с")
+                        if site in cdps:
+                            cdps[site].send("Network.setBlockedURLs", {"urls": []})
+                            r = page.reload(timeout=45000, wait_until="domcontentloaded") or r
+                        for _ in range(20):
+                            page.wait_for_timeout(2000)
+                            items = cards()
+                            if items:
+                                print(f"[{site}] проверка пройдена")
+                                break
+                        if site in cdps and not full_load.get(site):
+                            cdps[site].send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
+                    return r, items
+
+                def try_load():
+                    # у Авито сетевая ошибка через прокси (туннель не открылся) - повод сменить IP
+                    if site != "avito":
+                        return load()
+                    try:
+                        return load()
+                    except Exception as e:
+                        print(f"[{site}] сетевая ошибка: {str(e)[:120]}")
+                        return None, []
 
                 try:
-                    resp, items = load()
-                    # 403/429 - блок по частоте: пауза и повтор (у ротируемого прокси будет другой IP)
-                    for _ in range(2):
+                    resp, items = try_load()
+                    # 403/429 - блок IP: меняем адрес прокси (если есть ссылка) и пробуем снова
+                    tries = int(os.getenv("AVITO_ROTATE_TRIES", "3")) if site == "avito" else 1
+                    for attempt in range(tries):
                         code = resp.status if resp else 0
-                        if items or code not in (403, 429):
+                        bad = code in (403, 429) or (site == "avito" and code != 200)  # Авито шлёт и 439
+                        if items or (not bad and "доступ ограничен" not in title()):
                             break
-                        print(f"[{site}] HTTP {code} - пауза и повтор")
-                        page.wait_for_timeout(int(random.uniform(8, 15) * 1000))
-                        resp, items = load()
+                        print(f"[{site}] HTTP {code} - попытка {attempt + 1}/{tries}")
+                        if site == "avito" and os.getenv("AVITO_PROXY_ROTATE_URL"):
+                            if not rotate_proxy_ip():
+                                break
+                        else:
+                            page.wait_for_timeout(int(random.uniform(8, 15) * 1000))
+                        resp, items = try_load()
                     # полную загрузку включаем, только если страница открылась нормально, но без карточек
                     if not items and modes[site]["light"] and resp and resp.status == 200:
                         print(f"[{site}] в лёгком режиме карточек нет - перехожу на полную загрузку")
@@ -251,6 +408,12 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                 if not items:
                     try:
                         print(f"[{site}] страница без карточек: «{page.title()[:80]}»")
+                        print(f"[{site}] адрес: {page.url[:120]}")
+                        print(f"[{site}] метки:", page.evaluate(
+                            "() => [...new Set([...document.querySelectorAll('[data-marker]')]"
+                            ".map(e => e.dataset.marker))].slice(0, 25).join(', ')"))
+                        print(f"[{site}] текст:", page.evaluate(
+                            "() => document.body.innerText.replace(/\\s+/g, ' ').slice(0, 400)"))
                     except Exception:
                         pass
                 kb = _traffic(finished[site], breakdown[site]) / 1024
@@ -270,6 +433,8 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
         for ctx in persistent:
             ctx.close()  # сохраняет профиль на диск
         browser.close()
+    LAST_TRAFFIC.clear()
+    LAST_TRAFFIC.update({site: kb / 1024 for site, kb in traffic.items()})
     for site, kb in traffic.items():
         print(f"Трафик {site} за запуск: ~{kb / 1024:.2f} МБ")
         top = sorted(breakdown[site].items(), key=lambda x: -x[1])[:8]

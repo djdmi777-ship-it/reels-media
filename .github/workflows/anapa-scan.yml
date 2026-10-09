@@ -2,9 +2,9 @@ name: Anapa listings scan
 
 on:
   schedule:
-    # каждые 30 минут с 07:00 до 22:30 по Москве (UTC+3), ночью пауза: экономия бесплатных минут
-    # GitHub. Время в cron - UTC. Запуск может запаздывать на 5-20 минут.
-    - cron: "7,37 4-19 * * *"   # не :00/:30 - на эти минуты у GitHub пик нагрузки и задержки
+    # каждые 15 минут с 07:00 до 22:55 по Москве (UTC+3), ночью пауза: экономия минут GitHub и трафика.
+    # Время в cron - UTC. Запуск может запаздывать на 5-20 минут.
+    - cron: "7,22,37,52 4-19 * * *"   # не :00/:30 - на эти минуты у GitHub пик нагрузки и задержки
   workflow_dispatch:
   push:                       # тестовые запуски из рабочей ветки
     branches: [claude/adoring-mendel-o29a8z]
@@ -12,17 +12,26 @@ on:
 
 concurrency:
   group: anapa-scan
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'push' }}  # новый тестовый пуш прерывает старый тест; расписание ждёт очереди
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 75
     env:
       CHROME_CHANNEL: chrome          # предустановленный на раннере Google Chrome
+      BROWSER_PATH: /usr/bin/yandex-browser-stable   # Яндекс Браузер, если установился
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
       TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      TG_EXTRA_CHAT_IDS: "738632057"  # дополнительные получатели через запятую (тоже могут управлять поисками)
+      REPLAY_TO: "738632057"          # разово: продублировать ему объявления за сегодня
       AVITO_PROXY_ROTATE_URL: ${{ secrets.AVITO_PROXY_ROTATE_URL }}  # ссылка смены IP (необязательно)
+      AVITO_ROTATE_TRIES: "8"         # смена IP без ограничений: до 8 адресов за запуск
+      AVITO_ROTATE_WAIT: "10"
+      AVITO_PER_RUN: "0"              # все поиски Авито в каждом запуске (0 = без очереди)
+      LOOP_MINUTES: "0"               # >0 - один запуск крутится N минут, проверяя каждые 5 минут (для тестов)
+      TECH_REPORT: ${{ github.event_name == 'push' && '1' || '0' }}  # тест: короткий отчёт о каждой проверке владельцу
+      NO_BLOCK: "0"                   # экономия трафика: без рекламы, аналитики, картинок; если выдача не отрисуется - сам загрузит целиком
       AVITO_PROXY_URL: ${{ secrets.AVITO_PROXY_URL }}   # http://user:pass@host:port, пусто = Авито пропускается
     steps:
       - uses: actions/checkout@v5
@@ -33,6 +42,15 @@ jobs:
           cache-dependency-path: realty-parser/requirements.txt
       - run: pip install -r realty-parser/requirements.txt
 
+      - name: Install Yandex Browser
+        continue-on-error: true       # не поставился - работаем на Google Chrome
+        run: |
+          curl -fsSL https://repo.yandex.ru/yandex-browser/YANDEX-BROWSER-KEY.GPG | sudo gpg --dearmor -o /usr/share/keyrings/yandex-browser.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/yandex-browser.gpg] https://repo.yandex.ru/yandex-browser/deb stable main" | sudo tee /etc/apt/sources.list.d/yandex-browser.list
+          sudo apt-get update -o Dir::Etc::sourcelist=sources.list.d/yandex-browser.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
+          sudo apt-get install -y --no-install-recommends yandex-browser-stable
+          ls -l /usr/bin/yandex-browser* || true
+
       - name: Restore seen-listings state
         uses: actions/cache/restore@v4
         with:
@@ -41,7 +59,14 @@ jobs:
           restore-keys: anapa-state-
 
       - name: Scan
-        run: python scanner.py
+        run: |
+          end=$((SECONDS + LOOP_MINUTES * 60))
+          while true; do
+            echo "=== Проверка $(TZ=Europe/Moscow date +%H:%M) МСК ==="
+            python scanner.py || echo "Проход завершился с ошибкой, продолжаю"
+            [ "$SECONDS" -ge "$end" ] && break
+            sleep 300
+          done
         working-directory: realty-parser
 
       - name: Save seen-listings state
