@@ -15,7 +15,7 @@ import re
 import sys
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import tgbot
@@ -145,16 +145,49 @@ def send_telegram(text, chat=None):
     return ok
 
 
-def notify(blocks):
-    """Собирает блоки в сообщения до ~3500 символов и отправляет."""
+def notify(blocks, chat=None):
+    """Собирает блоки в сообщения до ~3500 символов и отправляет (всем или в один чат)."""
     msg = ""
     for b in blocks:
         if msg and len(msg) + len(b) > 3500:
-            send_telegram(msg)
+            send_telegram(msg, chat)
             msg = ""
         msg += b + "\n\n"
     if msg:
-        send_telegram(msg.strip())
+        send_telegram(msg.strip(), chat)
+
+
+REPLAY_DONE = STATE.parent / "replay_done.json"
+
+
+def replay_today(seen):
+    """Разово дублирует новому получателю (REPLAY_TO) объявления, присланные сегодня (с 00:00 МСК).
+    Пачки, записанные «тихо» при подключении поиска (20+ объявлений за раз), пропускаются;
+    повторы по ссылке и по объекту (цена+площадь+адрес) убираются."""
+    chat = os.getenv("REPLAY_TO")
+    done = json.loads(REPLAY_DONE.read_text()) if REPLAY_DONE.exists() else []
+    if not chat or chat in done:
+        return
+    since = datetime.now(timezone(timedelta(hours=3))).replace(hour=0, minute=0, second=0,
+                                                              microsecond=0).astimezone(timezone.utc)
+    today = {u: v for u, v in seen.items()
+             if v.get("first_seen") and datetime.fromisoformat(v["first_seen"]) >= since}
+    batch = {}
+    for v in today.values():
+        batch[v["first_seen"]] = batch.get(v["first_seen"], 0) + 1
+    picked, fps = [], set()
+    for u, v in sorted(today.items(), key=lambda kv: kv[1]["first_seen"]):
+        if v.get("notified") is False or (v.get("notified") is None and batch[v["first_seen"]] >= 20):
+            continue
+        if v.get("fp") and v["fp"] in fps:
+            continue
+        fps.add(v.get("fp"))
+        picked.append(fmt({"price": v.get("price", ""), "title": v.get("title", ""),
+                           "address": v.get("address", ""), "url": u}, "🆕 "))
+    print(f"Дубль за сегодня для нового получателя: {len(picked)} объявлений")
+    if picked:
+        notify([f"Объявления за сегодня ({len(picked)} шт.), дальше будут приходить новые:"] + picked, chat)
+    save_json(REPLAY_DONE, done + [chat])
 
 
 def main():
@@ -224,14 +257,19 @@ def main():
     new, changed, quiet, dupes = [], [], 0, 0
     for r in rows:  # отпечатки для уже известных ссылок (база старше этой проверки)
         old = seen.get(r["url"])
+        if old is not None and not old.get("address"):
+            old["address"] = r.get("address", "")
         if old is not None and not old.get("fp") and price_num(r["price"]) and r.get("address"):
             old["fp"] = fingerprint(r)
             fps.add(old["fp"])
+    if not a.dry_run:
+        replay_today(seen)  # до новых находок этой проверки: их новый получатель получит обычным порядком
     for r in rows:
         old = seen.get(r["url"])
         if old is None:
             fp = fingerprint(r) if price_num(r["price"]) and r.get("address") else None
-            seen[r["url"]] = {"first_seen": now, "price": r["price"], "title": r["title"], "fp": fp}
+            seen[r["url"]] = {"first_seen": now, "price": r["price"], "title": r["title"], "fp": fp,
+                              "address": r.get("address", ""), "notified": False}
             was_dupe = bool(fp and fp in fps)
             if fp:
                 fps.add(fp)
@@ -239,6 +277,7 @@ def main():
                 dupes += 1  # тот же объект под другой ссылкой - не дублируем уведомление
             elif r["search"] in seeded:
                 new.append(r)
+                seen[r["url"]]["notified"] = True
             else:
                 quiet += 1  # первый проход нового поиска: запоминаем без уведомления
         else:

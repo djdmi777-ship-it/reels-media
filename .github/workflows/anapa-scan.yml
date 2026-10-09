@@ -24,6 +24,7 @@ jobs:
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
       TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
       TG_EXTRA_CHAT_IDS: "738632057"  # дополнительные получатели через запятую (тоже могут управлять поисками)
+      REPLAY_TO: "738632057"          # разово: продублировать ему объявления за сегодня
       AVITO_PROXY_ROTATE_URL: ${{ secrets.AVITO_PROXY_ROTATE_URL }}  # ссылка смены IP (необязательно)
       AVITO_ROTATE_TRIES: "8"         # смена IP без ограничений: до 8 адресов за запуск
       AVITO_ROTATE_WAIT: "10"
