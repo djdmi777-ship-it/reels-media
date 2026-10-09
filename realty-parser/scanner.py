@@ -53,8 +53,8 @@ def avito_proxy_ready():
         return False
     u = urlparse(raw)
     print(f"Прокси: {u.hostname}:{u.port}")
-    rotate = os.getenv("AVITO_PROXY_ROTATE_URL")
-    attempts = int(os.getenv("AVITO_ROTATE_TRIES", "4")) if rotate else 1
+    rotate = None  # диагностика: одна проба без смены IP
+    attempts = 1
     probe = os.getenv("AVITO_PROBE_URL", "https://www.avito.ru/anapa/kvartiry/prodam?s=104")
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({"https": raw, "http": raw}))
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -185,9 +185,9 @@ def main():
         except ValueError as e:
             print(f"Ошибка настройки: {e}. Авито в этом запуске пропускаю.", file=sys.stderr)
             del os.environ["AVITO_PROXY_URL"]
-    avito_ok = True
+    avito_ok = True  # решает браузер: он сам пробует, меняет IP и повторяет (см. parser.scrape)
     if os.getenv("AVITO_PROXY_URL") and any("avito" in x["url"] for x in searches):
-        avito_ok = avito_proxy_ready()
+        avito_proxy_ready()  # только диагностика в логе: адрес и ответ Авито на обычный запрос
     print("Прокси для Авито:", "задан" if os.getenv("AVITO_PROXY_URL") else "НЕ задан",
           "| Telegram:", "задан" if os.getenv("TG_BOT_TOKEN") and os.getenv("TG_CHAT_ID") else "НЕ задан")
     active = searches

@@ -141,6 +141,25 @@ BLOCK_URLS = [
 ]
 
 
+def rotate_proxy_ip():
+    """Просит мобильный прокси сменить IP (ссылка из кабинета, секрет AVITO_PROXY_ROTATE_URL).
+    Возвращает True, если запрос выполнен. В лог идёт только хост ссылки: путь содержит ключ."""
+    import time
+    import urllib.request
+    raw = (os.getenv("AVITO_PROXY_ROTATE_URL") or "").strip()
+    if not raw:
+        return False
+    host = urlparse(raw).hostname
+    try:
+        r = urllib.request.urlopen(raw, timeout=30)
+        print(f"Смена IP запрошена ({host}): HTTP {r.status}, ответ: {r.read(160).decode('utf-8', 'ignore')[:100]!r}")
+    except Exception as e:
+        print(f"Смена IP не удалась (хост «{host}», ссылка должна начинаться с https://): {str(e)[:100]}")
+        return False
+    time.sleep(int(os.getenv("AVITO_ROTATE_WAIT", "20")))
+    return True
+
+
 def _router(mode, own=None):
     # mode["light"] переключается на лету; картинки и шрифты не грузим никогда;
     # own - если задано, запросы к чужим доменам (аналитика, реклама) режем
@@ -219,13 +238,18 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
 
                 try:
                     resp, items = load()
-                    # 403/429 - блок по частоте: пауза и повтор (у ротируемого прокси будет другой IP)
-                    for _ in range(2):
+                    # 403/429 - блок IP: меняем адрес прокси (если есть ссылка) и пробуем снова
+                    tries = int(os.getenv("AVITO_ROTATE_TRIES", "3")) if site == "avito" else 1
+                    for attempt in range(tries):
                         code = resp.status if resp else 0
                         if items or code not in (403, 429):
                             break
-                        print(f"[{site}] HTTP {code} - пауза и повтор")
-                        page.wait_for_timeout(int(random.uniform(8, 15) * 1000))
+                        print(f"[{site}] HTTP {code} - попытка {attempt + 1}/{tries}")
+                        if site == "avito" and os.getenv("AVITO_PROXY_ROTATE_URL"):
+                            if not rotate_proxy_ip():
+                                break
+                        else:
+                            page.wait_for_timeout(int(random.uniform(8, 15) * 1000))
                         resp, items = load()
                     # полную загрузку включаем, только если страница открылась нормально, но без карточек
                     if not items and modes[site]["light"] and resp and resp.status == 200:
