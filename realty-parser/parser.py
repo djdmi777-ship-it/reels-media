@@ -154,6 +154,7 @@ BLOCK_URLS = [
     "*.mp4*", "*img.avito.st*", "*googletagmanager*", "*google-analytics*", "*doubleclick*",
     "*mc.yandex*", "*yandex.ru/ads*", "*an.yandex*", "*buzzoola*", "*mail.ru*", "*vk.com*",
     "*top-fwz1*", "*adfox*", "*criteo*", "*tiktok*", "*facebook*", "*uxfeedback*",
+    "*hcaptcha*",  # капча на страницах блокировки ~2,4 МБ; на «проверке безопасности» блок снимается
     "*browser.yandex*", "*yastatic.net*", "*sba.yandex*",  # служебные запросы Яндекс Браузера
 ]
 
@@ -264,6 +265,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
         look = {"locale": "ru-RU", "user_agent": ua, "timezone_id": "Europe/Moscow",
                 "viewport": {"width": 1366, "height": 768}}
         pages_by_site, modes, finished, traffic, breakdown, persistent, cdps = {}, {}, {}, {}, {}, [], {}
+        net = {}  # site -> байты, реально полученные по сети (CDP)
         full_load = {}  # сайты, где экономный режим не сработал и страница грузится целиком
         for url in urls:
             site = detect_site(url)
@@ -283,6 +285,9 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                 pg = ctx.pages[0] if ctx.pages else ctx.new_page()
                 if site in PROFILE_SITES:
                     cdp = ctx.new_cdp_session(pg)
+                    net[site] = 0  # реальные байты по сети (кэш браузера не считается)
+                    cdp.on("Network.loadingFinished",
+                           lambda ev, k=site: net.__setitem__(k, net[k] + ev.get("encodedDataLength", 0)))
                     cdp.send("Network.enable")
                     if os.getenv("NO_BLOCK") != "1":  # NO_BLOCK=1 - грузить всё (диагностика)
                         cdp.send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
@@ -315,8 +320,22 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                             page.wait_for_timeout(3000)
                     return []
 
+                blocked = {"v": False}
+
                 def load():
-                    r = page.goto(target, timeout=45000, wait_until="domcontentloaded")
+                    blocked["v"] = False
+                    r = page.goto(target, timeout=45000, wait_until="commit")
+                    if site == "avito" and r and r.status != 200:
+                        # блок (403/429/439): сразу уходим со страницы, не скачивая её скрипты и капчу
+                        blocked["v"] = True
+                        page.goto("about:blank")
+                        return r, []
+                    page.wait_for_load_state("domcontentloaded", timeout=45000)
+                    t = title()
+                    if site == "avito" and "доступ ограничен" in t and "проверка" not in t:
+                        blocked["v"] = True
+                        page.goto("about:blank")
+                        return r, []
                     page.wait_for_timeout(4000)
                     page.mouse.wheel(0, 6000)  # дозагрузка ленивых карточек
                     page.wait_for_timeout(1500)
@@ -374,7 +393,8 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     tries = int(os.getenv("AVITO_ROTATE_TRIES", "3")) if site == "avito" else 1
                     for attempt in range(tries):
                         code = resp.status if resp else 0
-                        bad = code in (403, 429) or (site == "avito" and code != 200)  # Авито шлёт и 439
+                        bad = (code in (403, 429) or (site == "avito" and code != 200)  # Авито шлёт и 439
+                               or blocked["v"])
                         if items or (not bad and "доступ ограничен" not in title()):
                             break
                         print(f"[{site}] HTTP {code} - попытка {attempt + 1}/{tries}")
@@ -435,6 +455,9 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
         browser.close()
     LAST_TRAFFIC.clear()
     LAST_TRAFFIC.update({site: kb / 1024 for site, kb in traffic.items()})
+    for site, b in net.items():  # для сайтов с профилем - реальный трафик по сети, без кэша
+        LAST_TRAFFIC[site] = b / 1024 / 1024
+        print(f"Трафик {site} реально по сети (без кэша браузера): ~{b / 1024 / 1024:.2f} МБ")
     for site, kb in traffic.items():
         print(f"Трафик {site} за запуск: ~{kb / 1024:.2f} МБ")
         top = sorted(breakdown[site].items(), key=lambda x: -x[1])[:8]
