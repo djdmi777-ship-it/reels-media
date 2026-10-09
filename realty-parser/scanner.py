@@ -157,6 +157,11 @@ def main():
         avito_proxy_ready()  # только диагностика в логе: адрес и ответ Авито на обычный запрос
     print("Прокси для Авито:", "задан" if os.getenv("AVITO_PROXY_URL") else "НЕ задан",
           "| Telegram:", "задан" if os.getenv("TG_BOT_TOKEN") and os.getenv("TG_CHAT_ID") else "НЕ задан")
+    rot = os.getenv("AVITO_PROXY_ROTATE_URL")
+    if rot:
+        ok = rot.startswith("https://") and "@" not in rot.split("/")[2]
+        print("Ссылка смены IP:", f"задана ({urllib.parse.urlparse(rot).hostname})" if ok
+              else "ошибка - это не ссылка смены IP (должна начинаться с https:// и быть без логина)")
     active = searches
     if not avito_ok:
         print("Авито через прокси сейчас недоступен - пропускаю Авито в этом запуске (трафик не тратим)")
