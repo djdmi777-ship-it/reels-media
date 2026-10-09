@@ -100,6 +100,13 @@ def process_commands(searches):
     return changed
 
 
+def fingerprint(r):
+    """Один и тот же объект часто выставляют несколько агентов под разными ссылками:
+    совпадают сайт, цена, площадь и адрес - считаем это повтором."""
+    addr = re.sub(r"\W+", "", (r.get("address") or "").lower())
+    return "|".join([r.get("source", ""), str(price_num(r.get("price"))), r.get("area_m2", ""), addr])
+
+
 def price_num(s):
     d = re.sub(r"\D", "", s or "")
     return int(d) if d else None
@@ -194,15 +201,27 @@ def main():
         return 1
 
     seen = json.loads(STATE.read_text()) if STATE.exists() else {}
+    fps = {v.get("fp") for v in seen.values() if v.get("fp")}
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     seeded = {s["url"] for s in searches if s.get("seeded")}
 
-    new, changed, quiet = [], [], 0
+    new, changed, quiet, dupes = [], [], 0, 0
+    for r in rows:  # отпечатки для уже известных ссылок (база старше этой проверки)
+        old = seen.get(r["url"])
+        if old is not None and not old.get("fp") and price_num(r["price"]) and r.get("address"):
+            old["fp"] = fingerprint(r)
+            fps.add(old["fp"])
     for r in rows:
         old = seen.get(r["url"])
         if old is None:
-            seen[r["url"]] = {"first_seen": now, "price": r["price"], "title": r["title"]}
-            if r["search"] in seeded:
+            fp = fingerprint(r) if price_num(r["price"]) and r.get("address") else None
+            seen[r["url"]] = {"first_seen": now, "price": r["price"], "title": r["title"], "fp": fp}
+            was_dupe = bool(fp and fp in fps)
+            if fp:
+                fps.add(fp)
+            if was_dupe:
+                dupes += 1  # тот же объект под другой ссылкой - не дублируем уведомление
+            elif r["search"] in seeded:
                 new.append(r)
             else:
                 quiet += 1  # первый проход нового поиска: запоминаем без уведомления
@@ -218,7 +237,7 @@ def main():
         s["seeded"] = True
 
     summary = (f"Сканирование: {len(rows)} в выдаче, новых {len(new)}, "
-               f"цена изменилась {len(changed)}, запомнено без уведомления {quiet}")
+               f"цена изменилась {len(changed)}, запомнено без уведомления {quiet}, повторов объекта {dupes}")
     print(summary)
     if new:
         save(new, str(HERE / "new_listings.csv"))

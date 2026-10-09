@@ -327,8 +327,8 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     tries = int(os.getenv("AVITO_ROTATE_TRIES", "3")) if site == "avito" else 1
                     for attempt in range(tries):
                         code = resp.status if resp else 0
-                        if items or (code not in (403, 429)
-                                     and "доступ ограничен" not in title()):
+                        bad = code in (403, 429) or (site == "avito" and code != 200)  # Авито шлёт и 439
+                        if items or (not bad and "доступ ограничен" not in title()):
                             break
                         print(f"[{site}] HTTP {code} - попытка {attempt + 1}/{tries}")
                         if site == "avito" and os.getenv("AVITO_PROXY_ROTATE_URL"):
