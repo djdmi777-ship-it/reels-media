@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import tgbot
+import parser as scraper
 from parser import parse_proxy, save, scrape
 
 HERE = Path(__file__).parent
@@ -306,6 +307,21 @@ def main():
     save_json(STATE, seen)
     save_json(SEARCH_STATE, searches)
 
+    if os.getenv("TECH_REPORT") == "1" and os.getenv("TG_CHAT_ID"):
+        # техотчёт только владельцу (TG_CHAT_ID): видно ход теста без логов GitHub
+        by = {}
+        for r in rows:
+            by[r["source"]] = by.get(r["source"], 0) + 1
+        mb = scraper.LAST_TRAFFIC
+        parts = [f"{k}: {by.get(k, 0)} объявл., {mb.get(k, 0):.1f} МБ" for k in sorted(set(by) | set(mb))]
+        tz = timezone(timedelta(hours=3))
+        try:
+            send_telegram(f"⚙️ {datetime.now(tz):%H:%M} проверка: " + "; ".join(parts)
+                          + f". Новых {len(new)}, повторов отсеяно {dupes}"
+                          + (f". Проблемы: {'; '.join(failures)[:300]}" if failures else ""),
+                          os.environ["TG_CHAT_ID"])
+        except Exception as e:
+            print(f"Техотчёт не отправлен: {e}")
     if new or changed:
         notify([fmt(r, "🆕 ") for r in new] + [fmt(r, f"💸 было {old} -> ") for r, old in changed])
     for s in newly_seeded:

@@ -142,6 +142,9 @@ BLOCK_URLS = [
 ]
 
 
+LAST_TRAFFIC = {}  # МБ по сайтам за последний scrape() - для техотчёта
+
+
 def rotate_proxy_ip():
     """Просит мобильный прокси сменить IP (ссылка из кабинета, секрет AVITO_PROXY_ROTATE_URL).
     Возвращает True, если запрос выполнен. В лог идёт только хост ссылки: путь содержит ключ."""
@@ -404,6 +407,8 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
         for ctx in persistent:
             ctx.close()  # сохраняет профиль на диск
         browser.close()
+    LAST_TRAFFIC.clear()
+    LAST_TRAFFIC.update({site: kb / 1024 for site, kb in traffic.items()})
     for site, kb in traffic.items():
         print(f"Трафик {site} за запуск: ~{kb / 1024:.2f} МБ")
         top = sorted(breakdown[site].items(), key=lambda x: -x[1])[:8]

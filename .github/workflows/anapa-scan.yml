@@ -12,7 +12,7 @@ on:
 
 concurrency:
   group: anapa-scan
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'push' }}  # новый тестовый пуш прерывает старый тест; расписание ждёт очереди
 
 jobs:
   scan:
@@ -31,6 +31,7 @@ jobs:
       AVITO_PER_RUN: "0"              # все поиски Авито в каждом запуске (0 = без очереди)
       # тест: запуск из ветки крутится ~55 минут и проверяет всё каждые 5 минут; по расписанию - один проход
       LOOP_MINUTES: ${{ github.event_name == 'push' && '55' || '0' }}
+      TECH_REPORT: ${{ github.event_name == 'push' && '1' || '0' }}  # тест: короткий отчёт о каждой проверке владельцу
       NO_BLOCK: "0"                   # экономия трафика: без рекламы, аналитики, картинок; если выдача не отрисуется - сам загрузит целиком
       AVITO_PROXY_URL: ${{ secrets.AVITO_PROXY_URL }}   # http://user:pass@host:port, пусто = Авито пропускается
     steps:
