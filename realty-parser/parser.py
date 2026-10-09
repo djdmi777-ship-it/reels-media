@@ -274,6 +274,12 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     page.mouse.wheel(0, 6000)  # дозагрузка ленивых карточек
                     page.wait_for_timeout(1500)
                     items = page.evaluate(JS[site])
+                    if not items and site == "avito" and "доступ ограничен" not in page.title().lower():
+                        try:  # выдача может дорисовываться скриптами позже
+                            page.wait_for_selector("[data-marker='item']", timeout=15000)
+                            items = page.evaluate(JS[site])
+                        except Exception:
+                            pass
                     if not items and "проверка" in page.title().lower():
                         # «Доступ ограничен: проверка безопасности» - JS-проверка браузера. Снимаем
                         # блокировку сторонних скриптов (проверке они могут быть нужны) и ждём, пока
@@ -332,6 +338,12 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                 if not items:
                     try:
                         print(f"[{site}] страница без карточек: «{page.title()[:80]}»")
+                        print(f"[{site}] адрес: {page.url[:120]}")
+                        print(f"[{site}] метки:", page.evaluate(
+                            "() => [...new Set([...document.querySelectorAll('[data-marker]')]"
+                            ".map(e => e.dataset.marker))].slice(0, 25).join(', ')"))
+                        print(f"[{site}] текст:", page.evaluate(
+                            "() => document.body.innerText.replace(/\\s+/g, ' ').slice(0, 400)"))
                     except Exception:
                         pass
                 kb = _traffic(finished[site], breakdown[site]) / 1024
