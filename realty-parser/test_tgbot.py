@@ -63,4 +63,14 @@ assert any("подключён" in m for m in sent), sent                     # 
 saved = json.loads(scanner.SEARCH_STATE.read_text())
 assert all(x["seeded"] for x in saved)
 
+# --- Авито по кругу: по одному поиску за запуск ---
+os.environ["AVITO_PER_RUN"] = "1"
+three = [{"name": f"A{i}", "url": f"https://www.avito.ru/x{i}?s=104", "seeded": True} for i in range(3)]
+scanner.SEARCH_STATE.write_text(json.dumps(three))
+seen_urls = []
+scanner.scrape = lambda urls, pages: (seen_urls.append(list(urls)) or fake_rows(urls, pages))
+for _ in range(4):
+    assert scanner.main() == 0
+assert [u_[0].split("/")[-1] for u_ in seen_urls] == ["x0?s=104", "x1?s=104", "x2?s=104", "x0?s=104"], seen_urls
+
 print("Все проверки пройдены")
