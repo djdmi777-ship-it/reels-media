@@ -153,7 +153,10 @@ def rotate_proxy_ip():
     if host and host.endswith("mobileproxy.space") and "format=" not in raw:
         raw += ("&" if "?" in raw else "?") + "format=json"  # без этого отдаётся HTML-страница
     try:
-        r = urllib.request.urlopen(raw, timeout=30)
+        # поставщик просит при программном вызове указывать User-Agent браузера
+        req = urllib.request.Request(raw, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                                                                 "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"})
+        r = urllib.request.urlopen(req, timeout=30)
         print(f"Смена IP запрошена ({host}): HTTP {r.status}, ответ: {r.read(160).decode('utf-8', 'ignore')[:100]!r}")
     except Exception as e:
         print(f"Смена IP не удалась (хост «{host}», ссылка должна начинаться с https://): {str(e)[:100]}")
