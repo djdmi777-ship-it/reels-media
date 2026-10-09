@@ -150,6 +150,8 @@ def rotate_proxy_ip():
     if not raw:
         return False
     host = urlparse(raw).hostname
+    if host and host.endswith("mobileproxy.space") and "format=" not in raw:
+        raw += ("&" if "?" in raw else "?") + "format=json"  # без этого отдаётся HTML-страница
     try:
         r = urllib.request.urlopen(raw, timeout=30)
         print(f"Смена IP запрошена ({host}): HTTP {r.status}, ответ: {r.read(160).decode('utf-8', 'ignore')[:100]!r}")
@@ -157,7 +159,22 @@ def rotate_proxy_ip():
         print(f"Смена IP не удалась (хост «{host}», ссылка должна начинаться с https://): {str(e)[:100]}")
         return False
     time.sleep(int(os.getenv("AVITO_ROTATE_WAIT", "20")))
+    print("Адрес прокси после смены:", proxy_exit_ip())
     return True
+
+
+def proxy_exit_ip():
+    """Выходной IP прокси Авито (для лога: видно, сменился ли адрес)."""
+    import json
+    import urllib.request
+    raw = os.getenv("AVITO_PROXY_URL")
+    if not raw:
+        return "-"
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({"https": raw, "http": raw}))
+        return json.load(opener.open("https://ipinfo.io/json", timeout=25)).get("ip")
+    except Exception as e:
+        return f"не определён ({str(e)[:60]})"
 
 
 def _router(mode, own=None):
