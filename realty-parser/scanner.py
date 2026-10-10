@@ -6,7 +6,8 @@
 Новый поиск (и самый первый запуск) сканируется «тихо»: объявления запоминаются без уведомлений.
 Список поисков меняется командами Telegram-бота (/add, /list, /remove), см. tgbot.py.
 Настройки: переменные окружения или файл .env рядом со скриптом:
-  TG_BOT_TOKEN, TG_CHAT_ID - Telegram; AVITO_PROXY_URL - прокси для Авито.
+  TG_BOT_TOKEN, TG_CHAT_ID - Telegram; AVITO_PROXY_URL - прокси для Авито;
+  ADMIN_CHAT_ID - куда слать технические отчёты и сигналы о сбоях (по умолчанию TG_CHAT_ID).
 """
 import argparse
 import json
@@ -165,7 +166,7 @@ HEALTH = STATE.parent / "health.json"
 def check_health(searches_active, rows, now):
     """Владельцу (TG_CHAT_ID): «⚠️ Авито не отвечает уже 2 часа» и «✅ снова работает».
     Сбой = ни одного объявления с сайта за проверку; тревога после 2 часов и 3 проверок подряд."""
-    owner = os.getenv("TG_CHAT_ID")
+    owner = admin_chat()
     hours = float(os.getenv("ALERT_HOURS", "2"))
     health = json.loads(HEALTH.read_text()) if HEALTH.exists() else {}
     got = {r.get("source") or scraper.detect_site(r.get("search") or r["url"]) for r in rows}
@@ -189,6 +190,12 @@ def check_health(searches_active, rows, now):
 def fmt(r, prefix=""):
     bits = [b for b in (r["price"], r["title"], r["address"]) if b]
     return f"{prefix}{' | '.join(bits)}\n{r['url']}"
+
+
+def admin_chat():
+    """Куда слать технические сообщения (отчёт ⚙️, сигналы ⚠️/✅): ADMIN_CHAT_ID, иначе TG_CHAT_ID.
+    Когда бот переедет к клиенту, ADMIN_CHAT_ID должен остаться вашим, чтобы клиент их не получал."""
+    return os.getenv("ADMIN_CHAT_ID") or os.getenv("TG_CHAT_ID")
 
 
 def chat_ids():
@@ -378,8 +385,8 @@ def main():
     if new:
         save(new, str(HERE / "new_listings.csv"))
 
-    if os.getenv("TECH_REPORT") == "1" and os.getenv("TG_CHAT_ID"):
-        # техотчёт только владельцу (TG_CHAT_ID): видно ход теста без логов GitHub
+    if os.getenv("TECH_REPORT") == "1" and admin_chat():
+        # техотчёт только администратору (ADMIN_CHAT_ID), клиент его не получает
         by = {}
         for r in rows:
             by[r["source"]] = by.get(r["source"], 0) + 1
@@ -390,7 +397,7 @@ def main():
             send_telegram(f"⚙️ {datetime.now(tz):%H:%M} проверка: " + "; ".join(parts)
                           + f". Новых {len(new)}, повторов отсеяно {dupes}, старых отсеяно {stale}"
                           + (f". Проблемы: {'; '.join(failures)[:300]}" if failures else ""),
-                          os.environ["TG_CHAT_ID"])
+                          admin_chat())
         except Exception as e:
             print(f"Техотчёт не отправлен: {e}")
     names = {x["url"]: x["name"] for x in searches}

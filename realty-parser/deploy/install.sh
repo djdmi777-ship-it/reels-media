@@ -59,7 +59,7 @@ User=$APP_USER
 WorkingDirectory=$APP_DIR/app
 Environment=PYTHONUNBUFFERED=1
 ExecStart=$APP_DIR/venv/bin/python scanner.py
-TimeoutStartSec=20min
+TimeoutStartSec=40min
 Nice=5
 UNIT
 
