@@ -1,12 +1,10 @@
 name: Anapa listings scan
 
 on:
-  # Рабочий сканер крутится на сервере (realty-parser/deploy, systemd-таймер каждые 15 минут).
-  # Здесь только ручной запуск и тестовые прогоны из ветки - без уведомлений клиентам.
+  # Рабочий сканер крутится на сервере (realty-parser/deploy, systemd-таймер).
+  # Здесь только ручной запуск для отладки. Автозапуски отключены: тест и сервер ходят через один
+  # прокси, и смена IP в тесте ломает проверку на сервере.
   workflow_dispatch:
-  push:                       # тестовые запуски из рабочей ветки
-    branches: [claude/adoring-mendel-o29a8z]
-    paths: ["realty-parser/**", ".github/workflows/anapa-scan.yml"]
 
 concurrency:
   group: anapa-scan
@@ -22,16 +20,13 @@ jobs:
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
       TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
       TG_EXTRA_CHAT_IDS: "738632057"  # дополнительные получатели через запятую (тоже могут управлять поисками)
-      REPLAY_TO: "738632057"          # разово: продублировать ему объявления за сегодня
-      AVITO_PROXY_ROTATE_URL: ${{ secrets.AVITO_PROXY_ROTATE_URL }}  # ссылка смены IP (необязательно)
+      # AVITO_PROXY_ROTATE_URL здесь намеренно не передаётся: смена IP в тесте сбивает сессии сервера
       AVITO_ROTATE_TRIES: "8"         # смена IP без ограничений: до 8 адресов за запуск
       AVITO_ROTATE_WAIT: "10"
       AVITO_PER_RUN: "0"              # все поиски Авито в каждом запуске (0 = без очереди)
       # >0 - один запуск крутится N минут с паузой LOOP_PAUSE между проверками
       LOOP_MINUTES: "0"
       LOOP_PAUSE: "840"               # пауза между проверками, с (+ ~1 мин сама проверка = ~15 мин)
-      PUSH_DRY: "1"                   # 1 - тестовые запуски из ветки без уведомлений клиентам
-      TECH_REPORT: ${{ github.event_name == 'push' && '1' || '0' }}  # тест: короткий отчёт о каждой проверке владельцу
       NO_JS: "0"                      # 1 - Авито без скриптов (проверено: чаще блок 429 и карточек нет - выключено)
       NO_BLOCK: "0"                   # экономия трафика: без рекламы, аналитики, картинок; если выдача не отрисуется - сам загрузит целиком
       AVITO_PROXY_URL: ${{ secrets.AVITO_PROXY_URL }}   # http://user:pass@host:port, пусто = Авито пропускается
@@ -65,8 +60,8 @@ jobs:
           end=$((SECONDS + LOOP_MINUTES * 60))
           while true; do
             echo "=== Проверка $(TZ=Europe/Moscow date +%H:%M) МСК ==="
-            # PUSH_DRY=1: запуск из ветки без уведомлений клиентам и без записи базы
-            python scanner.py ${{ github.event_name == 'push' && env.PUSH_DRY == '1' && '--dry-run' || '' }} || echo "Проход завершился с ошибкой, продолжаю"
+            # всегда --dry-run: без уведомлений клиентам и без записи базы (рабочая база - на сервере)
+            python scanner.py --dry-run || echo "Проход завершился с ошибкой, продолжаю"
             [ "$SECONDS" -ge "$end" ] && break
             sleep "${LOOP_PAUSE:-300}"
           done

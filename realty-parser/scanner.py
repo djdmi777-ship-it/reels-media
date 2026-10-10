@@ -6,7 +6,8 @@
 Новый поиск (и самый первый запуск) сканируется «тихо»: объявления запоминаются без уведомлений.
 Список поисков меняется командами Telegram-бота (/add, /list, /remove), см. tgbot.py.
 Настройки: переменные окружения или файл .env рядом со скриптом:
-  TG_BOT_TOKEN, TG_CHAT_ID - Telegram; AVITO_PROXY_URL - прокси для Авито.
+  TG_BOT_TOKEN, TG_CHAT_ID - Telegram; AVITO_PROXY_URL - прокси для Авито;
+  ADMIN_CHAT_ID - куда слать технические отчёты и сигналы о сбоях (по умолчанию TG_CHAT_ID).
 """
 import argparse
 import json
@@ -165,10 +166,10 @@ HEALTH = STATE.parent / "health.json"
 def check_health(searches_active, rows, now):
     """Владельцу (TG_CHAT_ID): «⚠️ Авито не отвечает уже 2 часа» и «✅ снова работает».
     Сбой = ни одного объявления с сайта за проверку; тревога после 2 часов и 3 проверок подряд."""
-    owner = os.getenv("TG_CHAT_ID")
+    owner = admin_chat()
     hours = float(os.getenv("ALERT_HOURS", "2"))
     health = json.loads(HEALTH.read_text()) if HEALTH.exists() else {}
-    got = {r.get("source") or scraper.detect_site(r.get("search") or r["url"]) for r in rows}
+    got = {row_site(r) for r in rows}
     for site in {scraper.detect_site(x["url"]) for x in searches_active}:
         h = health.setdefault(site, {})
         if site in got:
@@ -189,6 +190,12 @@ def check_health(searches_active, rows, now):
 def fmt(r, prefix=""):
     bits = [b for b in (r["price"], r["title"], r["address"]) if b]
     return f"{prefix}{' | '.join(bits)}\n{r['url']}"
+
+
+def admin_chat():
+    """Куда слать технические сообщения (отчёт ⚙️, сигналы ⚠️/✅): ADMIN_CHAT_ID, иначе TG_CHAT_ID.
+    Когда бот переедет к клиенту, ADMIN_CHAT_ID должен остаться вашим, чтобы клиент их не получал."""
+    return os.getenv("ADMIN_CHAT_ID") or os.getenv("TG_CHAT_ID")
 
 
 def chat_ids():
@@ -220,6 +227,118 @@ def send_telegram(text, chat=None, button=None, html=False):
             print(f"Не удалось отправить в чат ...{str(c)[-3:]}: {str(e)[:80]} "
                   "(получатель должен сначала написать боту /start)", file=sys.stderr)
     return ok
+
+
+STATS = STATE.parent / "stats.json"
+MSK = timezone(timedelta(hours=3))
+TZ_NOW = lambda: datetime.now(MSK)  # noqa: E731
+
+
+def row_site(r):
+    return r.get("source") or scraper.detect_site(r.get("search") or r["url"])
+
+
+def classify_error(text):
+    t = text or ""
+    if "429" in t:
+        return "429 (слишком много запросов)"
+    if "403" in t:
+        return "403 (доступ закрыт)"
+    if "439" in t:
+        return "439 (блок IP)"
+    if "TUNNEL" in t or "PROXY" in t:
+        return "прокси не открыл соединение"
+    if "net::" in t or "Timeout" in t or "timeout" in t:
+        return "сеть/таймаут"
+    return "прочее"
+
+
+def record_stats(active, rows, failures, new, changed, cnt):
+    """Копит суточную статистику в state/stats.json (по датам МСК, хранится 14 дней)."""
+    stats = json.loads(STATS.read_text()) if STATS.exists() else {"days": {}}
+    day = stats["days"].setdefault(TZ_NOW().strftime("%Y-%m-%d"), {"runs": 0, "sites": {}, "report_sent": False})
+    day["runs"] += 1
+    day["last_run"] = TZ_NOW().strftime("%H:%M")
+    scanned = {scraper.detect_site(x["url"]) for x in active}
+    got = {}
+    for r in rows:
+        got[row_site(r)] = got.get(row_site(r), 0) + 1
+    for site in scanned:
+        d = day["sites"].setdefault(site, {})
+        d["runs"] = d.get("runs", 0) + 1
+        d["cards"] = d.get("cards", 0) + got.get(site, 0)
+        d["ok_runs"] = d.get("ok_runs", 0) + (1 if got.get(site) else 0)
+        d["mb"] = round(d.get("mb", 0) + scraper.LAST_TRAFFIC.get(site, 0), 3)
+        d["new"] = d.get("new", 0) + sum(1 for r in new if row_site(r) == site)
+        d["price_changes"] = d.get("price_changes", 0) + sum(1 for r, _ in changed if row_site(r) == site)
+        for k in ("dupes", "stale", "quiet"):
+            d[k] = d.get(k, 0) + cnt[k].get(site, 0)
+        if site == "avito":
+            d["ip_changes"] = d.get("ip_changes", 0) + scraper.ROTATIONS.get("avito", 0)
+        errs = d.setdefault("errors", {})
+        for f in failures:
+            if f.split(":", 1)[0].split()[0] == site:
+                kind = classify_error(f)
+                errs[kind] = errs.get(kind, 0) + 1
+    for k in sorted(stats["days"])[:-14]:
+        del stats["days"][k]
+    save_json(STATS, stats)
+
+
+def build_report(date, day):
+    names = {"avito": "Авито", "cian": "ЦИАН"}
+    y, m, dd = date.split("-")
+    lines = [f"📊 Итоги дня {dd}.{m}.{y}", f"Проверок за день: {day['runs']} (последняя в {day.get('last_run', '-')} МСК)"]
+    total_new, problems = 0, []
+    for site in ("avito", "cian"):
+        d = day["sites"].get(site)
+        if not d:
+            continue
+        total_new += d.get("new", 0)
+        avg = d["mb"] / d["runs"] if d["runs"] else 0
+        lines += ["", f"{names[site]}",
+                  f"• Новых объявлений отправлено: {d.get('new', 0)}",
+                  f"• Снижений/изменений цены: {d.get('price_changes', 0)}",
+                  f"• Отсеяно: повторов {d.get('dupes', 0)}, старых {d.get('stale', 0)}",
+                  f"• Проверок с результатом: {d['ok_runs']} из {d['runs']}",
+                  f"• Трафик: {d['mb']:.0f} МБ за день (в среднем {avg:.1f} МБ за проверку)"]
+        if site == "avito":
+            lines.append(f"• Смен IP прокси: {d.get('ip_changes', 0)}")
+        errs = d.get("errors", {})
+        if errs:
+            lines.append("• Ошибки: " + "; ".join(f"{k} - {v}" for k, v in sorted(errs.items(), key=lambda kv: -kv[1])))
+        if d["runs"] and d["ok_runs"] / d["runs"] < 0.8:
+            problems.append(f"{names[site]}: результат только в {d['ok_runs']} из {d['runs']} проверок")
+    lines += ["", f"Всего новых объявлений: {total_new}"]
+    lines.append("⚠️ " + "; ".join(problems) if problems else "✅ Сбоев, которые мешали бы работе, нет")
+    return "\n".join(lines)
+
+
+def send_daily_report():
+    """Раз в день (после DAILY_REPORT_TIME по МСК, по умолчанию 22:30) отправляет итоги администратору.
+    Пропущенные дни (сервер был выключен) досылаются при следующем запуске."""
+    chat = admin_chat()
+    if not (chat and STATS.exists()):
+        return
+    stats = json.loads(STATS.read_text())
+    now = TZ_NOW()
+    hh, mm = (os.getenv("DAILY_REPORT_TIME", "22:30") + ":0").split(":")[:2]
+    due = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+    today = now.strftime("%Y-%m-%d")
+    changed = False
+    for date, day in sorted(stats["days"].items()):
+        if day.get("report_sent") or not day["runs"]:
+            continue
+        if date == today and now < due:
+            continue
+        try:
+            send_telegram(build_report(date, day), chat)
+            day["report_sent"] = True
+            changed = True
+        except Exception as e:
+            print(f"Суточный отчёт не отправлен: {str(e)[:100]}", file=sys.stderr)
+    if changed:
+        save_json(STATS, stats)
 
 
 def notify(blocks, chat=None):
@@ -326,6 +445,8 @@ def main():
         print("Ни одного объявления не получено - базу не трогаю.", file=sys.stderr)
         if not a.dry_run:
             check_health(active, rows, datetime.now(timezone.utc))
+            record_stats(active, rows, failures, [], [], {k: {} for k in ("dupes", "stale", "quiet")})
+            send_daily_report()
         return 1
 
     seen = json.loads(STATE.read_text()) if STATE.exists() else {}
@@ -334,6 +455,10 @@ def main():
     seeded = {s["url"] for s in searches if s.get("seeded")}
 
     new, changed, quiet, dupes, stale = [], [], 0, 0, 0
+    cnt = {k: {} for k in ("dupes", "stale", "quiet")}  # по источникам, для суточного отчёта
+
+    def bump(kind, r):
+        cnt[kind][row_site(r)] = cnt[kind].get(row_site(r), 0) + 1
     for r in rows:  # отпечатки для уже известных ссылок (база старше этой проверки)
         old = seen.get(r["url"])
         if old is not None and not old.get("address"):
@@ -354,13 +479,16 @@ def main():
                 fps.add(fp)
             if was_dupe:
                 dupes += 1  # тот же объект под другой ссылкой - не дублируем уведомление
+                bump("dupes", r)
             elif r.get("posted") == "old":
                 stale += 1  # старое объявление впервые попало в выдачу (поднято, VIP) - не новое
+                bump("stale", r)
             elif r["search"] in seeded:
                 new.append(r)
                 seen[r["url"]]["notified"] = True
             else:
                 quiet += 1  # первый проход нового поиска: запоминаем без уведомления
+                bump("quiet", r)
         else:
             o, n = price_num(old.get("price")), price_num(r["price"])
             if o and n and o != n:
@@ -378,21 +506,6 @@ def main():
     if new:
         save(new, str(HERE / "new_listings.csv"))
 
-    if os.getenv("TECH_REPORT") == "1" and os.getenv("TG_CHAT_ID"):
-        # техотчёт только владельцу (TG_CHAT_ID): видно ход теста без логов GitHub
-        by = {}
-        for r in rows:
-            by[r["source"]] = by.get(r["source"], 0) + 1
-        mb = scraper.LAST_TRAFFIC
-        parts = [f"{k}: {by.get(k, 0)} объявл., {mb.get(k, 0):.1f} МБ" for k in sorted(set(by) | set(mb))]
-        tz = timezone(timedelta(hours=3))
-        try:
-            send_telegram(f"⚙️ {datetime.now(tz):%H:%M} проверка: " + "; ".join(parts)
-                          + f". Новых {len(new)}, повторов отсеяно {dupes}, старых отсеяно {stale}"
-                          + (f". Проблемы: {'; '.join(failures)[:300]}" if failures else ""),
-                          os.environ["TG_CHAT_ID"])
-        except Exception as e:
-            print(f"Техотчёт не отправлен: {e}")
     names = {x["url"]: x["name"] for x in searches}
     if a.dry_run:
         print("--dry-run: состояние и уведомления пропущены.")
@@ -407,6 +520,8 @@ def main():
         send_cards([(r, names.get(r["search"], ""), None) for r in new]
                    + [(r, names.get(r["search"], ""), old) for r, old in changed])
     check_health(active, rows, datetime.now(timezone.utc))
+    record_stats(active, rows, failures, new, changed, cnt)
+    send_daily_report()
     for s in newly_seeded:
         send_telegram(f"Поиск «{s['name']}» подключён: запомнил текущие объявления, "
                       "дальше пришлю только новые.")

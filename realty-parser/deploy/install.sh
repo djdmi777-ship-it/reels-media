@@ -43,7 +43,10 @@ fi
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 chmod 600 "$APP_DIR/app/.env"
 
-echo "== Расписание: каждые 15 минут с 07:00 до 22:45 по Москве"
+# интервал проверок в минутах: SCAN_EVERY в .env (по умолчанию 15; делитель 60: 5, 10, 15, 20, 30)
+EVERY=$(grep -oP '^SCAN_EVERY=\K[0-9]+' "$APP_DIR/app/.env" 2>/dev/null || true)
+EVERY=${EVERY:-15}
+echo "== Расписание: каждые $EVERY минут с 07:00 до 22:59 по Москве"
 cat > /etc/systemd/system/anapa-scan.service <<UNIT
 [Unit]
 Description=Anapa listings scan (Avito + CIAN -> Telegram)
@@ -56,16 +59,16 @@ User=$APP_USER
 WorkingDirectory=$APP_DIR/app
 Environment=PYTHONUNBUFFERED=1
 ExecStart=$APP_DIR/venv/bin/python scanner.py
-TimeoutStartSec=20min
+TimeoutStartSec=40min
 Nice=5
 UNIT
 
 cat > /etc/systemd/system/anapa-scan.timer <<UNIT
 [Unit]
-Description=Anapa listings scan every 15 minutes, 07:00-22:45 MSK
+Description=Anapa listings scan every $EVERY minutes, 07:00-22:59 MSK
 
 [Timer]
-OnCalendar=*-*-* 07..22:00,15,30,45:00 Europe/Moscow
+OnCalendar=*-*-* 07..22:00/$EVERY:00 Europe/Moscow
 Persistent=false
 AccuracySec=30s
 
@@ -74,7 +77,8 @@ WantedBy=timers.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable --now anapa-scan.timer
+systemctl enable anapa-scan.timer
+systemctl restart anapa-scan.timer   # применить новое расписание
 systemctl list-timers anapa-scan.timer --no-pager || true
 
 if grep -q "^TG_BOT_TOKEN=..*" "$APP_DIR/app/.env"; then

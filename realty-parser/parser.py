@@ -159,7 +159,8 @@ BLOCK_URLS = [
 ]
 
 
-LAST_TRAFFIC = {}  # МБ по сайтам за последний scrape() - для техотчёта
+LAST_TRAFFIC = {}  # МБ по сайтам за последний scrape() - для суточного отчёта
+ROTATIONS = {"avito": 0}  # сколько раз за запуск меняли IP прокси
 
 
 def rotate_proxy_ip():
@@ -182,6 +183,7 @@ def rotate_proxy_ip():
     except Exception as e:
         print(f"Смена IP не удалась (хост «{host}», ссылка должна начинаться с https://): {str(e)[:100]}")
         return False
+    ROTATIONS["avito"] += 1
     time.sleep(int(os.getenv("AVITO_ROTATE_WAIT", "20")))
     print("Адрес прокси после смены:", proxy_exit_ip())
     return True
@@ -281,7 +283,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     opts["args"] = list(opts.get("args", [])) + [f"--disk-cache-dir={cache_dir}",
                                                                  "--disk-cache-size=209715200"]
                     ctx = p.chromium.launch_persistent_context(
-                        str(PROFILE_DIR / (site if own_ua else site + "-yandex")), **look, **opts, **kw)
+                        str(prof), **look, **opts, **kw)
                     persistent.append(ctx)
                 else:
                     ctx = browser.new_context(**look, **kw)
@@ -296,9 +298,6 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     cache_hits[site] = 0
                     cdp.on("Network.requestServedFromCache",
                            lambda ev, k=site: cache_hits.__setitem__(k, cache_hits[k] + 1))
-                    cdp.on("Network.responseReceived",
-                           lambda ev, k=site: cache_hits.__setitem__(k, cache_hits[k] + 1)
-                           if ev.get("response", {}).get("fromDiskCache") else None)
                     cdp.on("Network.loadingFinished",
                            lambda ev, k=site: net.__setitem__(k, net[k] + ev.get("encodedDataLength", 0)))
                     cdp.send("Network.enable")
@@ -338,22 +337,32 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                             page.wait_for_timeout(3000)
                     return []
 
-                blocked = {"v": False}
+                blocked = {"v": False, "info": ""}
+
+                def leave_blocked(r, why):
+                    # запоминаем, что за страница это была (для лога), и уходим, не качая её скрипты
+                    try:
+                        blocked["info"] = f"«{page.title()[:60]}» {page.url[:100]} ({why})"
+                    except Exception:
+                        blocked["info"] = f"{why}"
+                    blocked["v"] = True
+                    page.goto("about:blank")
+                    return r, []
 
                 def load():
-                    blocked["v"] = False
+                    blocked["v"], blocked["info"] = False, ""
                     r = page.goto(target, timeout=45000, wait_until="commit")
-                    if site == "avito" and r and r.status != 200:
-                        # блок (403/429/439): сразу уходим со страницы, не скачивая её скрипты и капчу
-                        blocked["v"] = True
-                        page.goto("about:blank")
-                        return r, []
-                    page.wait_for_load_state("domcontentloaded", timeout=45000)
+                    status_bad = site == "avito" and r and r.status != 200
+                    try:
+                        page.wait_for_load_state("domcontentloaded", timeout=15000 if status_bad else 45000)
+                    except Exception:
+                        if status_bad:
+                            return leave_blocked(r, f"HTTP {r.status}")
+                        raise
                     t = title()
-                    if site == "avito" and "доступ ограничен" in t and "проверка" not in t:
-                        blocked["v"] = True
-                        page.goto("about:blank")
-                        return r, []
+                    # «проверка безопасности» (JS-проверка) нужно дождаться, даже если она пришла с 403/429
+                    if site == "avito" and "проверка" not in t and (status_bad or "доступ ограничен" in t):
+                        return leave_blocked(r, f"HTTP {r.status}" if r else "блок")
                     page.wait_for_timeout(4000)
                     page.mouse.wheel(0, 6000)  # дозагрузка ленивых карточек
                     page.wait_for_timeout(1500)
@@ -371,7 +380,7 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                         print(f"[{site}] экономный режим без карточек - гружу страницу целиком")
                         full_load[site] = True
                         cdps[site].send("Emulation.setScriptExecutionDisabled", {"value": False})
-                        cdps[site].send("Network.setBlockedURLs", {"urls": BLOCK_URLS})
+                        cdps[site].send("Network.setBlockedURLs", {"urls": []})
                         r = page.reload(timeout=45000, wait_until="domcontentloaded") or r
                         try:
                             page.wait_for_selector("[data-marker='item']", timeout=20000)
@@ -445,7 +454,9 @@ def scrape(urls, pages, headless=True, delay=(3, 6)):
                     rows.append(row)
                     new += 1
                 status = resp.status if resp else "?"
-                if not items:
+                if not items and blocked["info"]:
+                    print(f"[{site}] блок: {blocked['info']}")
+                elif not items:
                     try:
                         print(f"[{site}] страница без карточек: «{page.title()[:80]}»")
                         print(f"[{site}] адрес: {page.url[:120]}")
