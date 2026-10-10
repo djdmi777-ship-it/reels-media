@@ -159,7 +159,8 @@ BLOCK_URLS = [
 ]
 
 
-LAST_TRAFFIC = {}  # МБ по сайтам за последний scrape() - для техотчёта
+LAST_TRAFFIC = {}  # МБ по сайтам за последний scrape() - для суточного отчёта
+ROTATIONS = {"avito": 0}  # сколько раз за запуск меняли IP прокси
 
 
 def rotate_proxy_ip():
@@ -182,6 +183,7 @@ def rotate_proxy_ip():
     except Exception as e:
         print(f"Смена IP не удалась (хост «{host}», ссылка должна начинаться с https://): {str(e)[:100]}")
         return False
+    ROTATIONS["avito"] += 1
     time.sleep(int(os.getenv("AVITO_ROTATE_WAIT", "20")))
     print("Адрес прокси после смены:", proxy_exit_ip())
     return True
