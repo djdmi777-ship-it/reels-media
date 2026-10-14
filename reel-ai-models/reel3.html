@@ -147,7 +147,7 @@ const SC = [];
 const scene = (a, b, fn) => SC.push({ a: bt(a), b: bt(b), fn });
 // one shot per model, hard cuts on the beat; [clip, from beat, to beat, source start s, focus x, focus y, zoom]
 const SHOTS = [
-  ['morning', 0, 6, 0.0, .55, .58, 1.10, 0],
+  ['morning', 0, 6, 0.0, .55, .58, 1.10, 0, .8],   // .8x: ends before the source's own jump cut at 2.1 s
   ['selfie', 6, 10, 0.0, .5, .45, 1.04, 4],
   ['makeup', 10, 13, 0.0, .5, .45, 1.02, 3],
   ['beach', 13, 16, 1.0, .5, .45, 1.02, 2],
@@ -160,8 +160,8 @@ const SHOTS = [
 ];
 // a shot: full frame, one slow push-in, no shake
 async function shot(s, t, o = {}) {
-  const [clip, a, b, src, fx, fy, z0] = s, p = lin(t, bt(a), bt(b));
-  await vid(clip, src + (t - bt(a)), 0, 0, W, H, { zoom: z0 * mix(1, 1.05, p), fx, fy, ...o });
+  const [clip, a, b, src, fx, fy, z0, , rate = 1] = s, p = lin(t, bt(a), bt(b));
+  await vid(clip, src + (t - bt(a)) * rate, 0, 0, W, H, { zoom: z0 * mix(1, 1.05, p), fx, fy, ...o });
 }
 function counter(n, t, tCut) {
   const p = lin(t, tCut, tCut + .3);
