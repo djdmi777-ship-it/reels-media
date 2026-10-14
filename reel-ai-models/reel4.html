@@ -1,0 +1,326 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>AI models reel</title>
+<style>
+@font-face{font-family:Unb;src:url(fonts/unbounded-cyrillic.woff2),url(fonts/unbounded-latin.woff2);font-weight:200 900}
+@font-face{font-family:Unb;src:url(fonts/unbounded-latin.woff2);unicode-range:U+0000-00FF;font-weight:200 900}
+@font-face{font-family:Pf;src:url(fonts/playfair-display-cyrillic.woff2);unicode-range:U+0400-04FF;font-weight:400 900}
+@font-face{font-family:Pf;src:url(fonts/playfair-display-latin.woff2);unicode-range:U+0000-00FF,U+2000-206F;font-weight:400 900}
+@font-face{font-family:PfI;src:url(fonts/playfair-display-italic-cyrillic.woff2);unicode-range:U+0400-04FF;font-weight:400 900}
+@font-face{font-family:PfI;src:url(fonts/playfair-display-italic-latin.woff2);unicode-range:U+0000-00FF,U+2000-206F;font-weight:400 900}
+@font-face{font-family:It;src:url(fonts/inter-tight-cyrillic.woff2);unicode-range:U+0400-04FF;font-weight:100 900}
+@font-face{font-family:It;src:url(fonts/inter-tight-latin.woff2);unicode-range:U+0000-00FF,U+2000-206F;font-weight:100 900}
+html,body{margin:0;background:#000;overflow:hidden}
+canvas{display:block;width:1080px;height:1920px}
+#hud{position:fixed;left:8px;top:8px;color:#0f0;font:14px monospace;z-index:9}
+</style></head><body>
+<canvas id="c" width="1080" height="1920"></canvas><div id="hud"></div>
+<script>
+const W = 1080, H = 1920, FPS = 30;
+const B = 60 / 130;                // one beat (Cat Walk, Mixkit #371: 130 BPM)
+const bt = n => n * B;
+const T = bt(60) + 0.6;             // film length
+window.T = T;
+const CREAM = '#f4ede3', ACC = '#ff5a36', INK = '#0a0909';
+const CLIPS = { fire: 301, beach: 301, lips: 181, yoga: 241, dress: 301, lace: 361, laundry: 300, makeup: 361, morning: 224, selfie: 180, unbox: 451 };
+const c = document.getElementById('c'), ctx = c.getContext('2d');
+
+// ---------- math ----------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lin = (t, a, b) => clamp((t - a) / (b - a));
+const out3 = x => 1 - Math.pow(1 - x, 3);
+const out5 = x => 1 - Math.pow(1 - x, 5);
+const in3 = x => x * x * x;
+const io = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const expo = x => x <= 0 ? 0 : x >= 1 ? 1 : 1 - Math.pow(2, -10 * x);
+const mix = (a, b, p) => a + (b - a) * p;
+// spring step response, damping ratio z >= .72 (tiny overshoot, no cartoon bounce)
+function spring(t, f = 2.2, z = .76) {
+  if (t <= 0) return 0;
+  const w = 2 * Math.PI * f, wd = w * Math.sqrt(1 - z * z);
+  return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t));
+}
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+// ---------- frames ----------
+const cache = new Map();
+function frameIdx(clip, s) {
+  const n = CLIPS[clip]; let i = Math.floor(s * FPS);
+  const p = 2 * (n - 1); i = ((i % p) + p) % p; if (i >= n) i = p - i;   // ping-pong, never runs out
+  return i + 1;
+}
+async function img(clip, s) {
+  const k = clip + frameIdx(clip, s);
+  if (cache.has(k)) return cache.get(k);
+  const im = new Image(); im.src = `frames/${clip}/${String(frameIdx(clip, s)).padStart(4, '0')}.jpg`;
+  await im.decode(); cache.set(k, im);
+  if (cache.size > 120) cache.delete(cache.keys().next().value);
+  return im;
+}
+// draw a source frame covering rect (x,y,w,h); zoom around focus (fx,fy in 0..1 of source)
+async function vid(clip, s, x, y, w, h, o = {}) {
+  const im = await img(clip, s);
+  const z = o.zoom || 1, fx = o.fx ?? .5, fy = o.fy ?? .5;
+  const ar = w / h; let sw = W, sh = W / ar; if (sh > H) { sh = H; sw = H * ar; }
+  sw /= z; sh /= z;
+  const sx = clamp(fx * W - sw / 2, 0, W - sw), sy = clamp(fy * H - sh / 2, 0, H - sh);
+  ctx.save();
+  if (o.filter) ctx.filter = o.filter;
+  if (o.alpha != null) ctx.globalAlpha = o.alpha;
+  ctx.drawImage(im, sx, sy, sw, sh, x, y, w, h);
+  ctx.restore();
+}
+
+// ---------- type ----------
+function font(fam, size, wt = 800) { return `${wt} ${size}px ${fam}`; }
+// masked rise: text slides up from behind its own baseline mask
+function rise(str, f, x, y, p, o = {}) {
+  ctx.save(); ctx.font = f; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
+  if (o.track) ctx.letterSpacing = o.track + 'px';
+  const m = ctx.measureText(str), asc = m.actualBoundingBoxAscent, desc = m.actualBoundingBoxDescent;
+  const wdt = m.width; const left = o.align === 'left' ? x : o.align === 'right' ? x - wdt : x - wdt / 2;
+  ctx.beginPath(); ctx.rect(left - 40, y - asc - 12, wdt + 80, asc + desc + 24); ctx.clip();
+  const h = asc + desc + 20;
+  ctx.translate(0, (1 - out5(p)) * h);
+  if (o.rot) ctx.rotate((1 - out5(p)) * o.rot);
+  ctx.globalAlpha = o.alpha ?? 1;
+  ctx.fillStyle = o.color || CREAM;
+  if (o.track) ctx.letterSpacing = o.track + 'px';
+  if (o.shadow) { ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 30; }
+  ctx.fillText(str, x, y);
+  ctx.restore();
+}
+// word by word rise, 55 ms stagger
+function words(str, f, x, y, t0, t, o = {}) {
+  ctx.save(); ctx.font = f; if (o.track) ctx.letterSpacing = o.track + 'px';
+  const ws = str.split(' '); const sp = ctx.measureText(' ').width;
+  const widths = ws.map(w => ctx.measureText(w).width); const tot = widths.reduce((a, b) => a + b, 0) + sp * (ws.length - 1);
+  ctx.restore();
+  let cx = (o.align === 'left') ? x : x - tot / 2;
+  ws.forEach((w, i) => { rise(w, f, cx, y, lin(t, t0 + i * .055, t0 + i * .055 + .5), { ...o, align: 'left', rot: .04 }); cx += widths[i] + sp; });
+}
+function label(str, x, y, a = 1, o = {}) {
+  ctx.save(); ctx.font = font('It', o.size || 30, 600); ctx.letterSpacing = (o.track ?? 6) + 'px';
+  ctx.textAlign = o.align || 'left'; ctx.fillStyle = o.color || CREAM; ctx.globalAlpha = a;
+  ctx.fillText(str, x, y); ctx.restore();
+}
+
+// ---------- film texture ----------
+const layer = document.createElement('canvas'); layer.width = W; layer.height = H;
+const grain = document.createElement('canvas'); grain.width = grain.height = 512;
+{ const g = grain.getContext('2d'), d = g.createImageData(512, 512), r = mulberry(7);
+  for (let i = 0; i < d.data.length; i += 4) { const v = r() * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; }
+  g.putImageData(d, 0, 0); }
+function texture(t) {
+  const f = Math.round(t * FPS), r = mulberry(f * 13 + 1);
+  ctx.save(); ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = .05;
+  const ox = -r() * 512, oy = -r() * 512;
+  for (let x = ox; x < W; x += 512) for (let y = oy; y < H; y += 512) ctx.drawImage(grain, x, y);
+  ctx.restore();
+  const v = ctx.createRadialGradient(W / 2, H / 2, H * .25, W / 2, H / 2, H * .75);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(60,40,20,.14)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+}
+function shade(a, col = '0,0,0') { ctx.fillStyle = `rgba(${col},${a})`; ctx.fillRect(0, 0, W, H); }
+function grad(y0, y1, a) { const g = ctx.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(0,0,0,${a})`); ctx.fillStyle = g; ctx.fillRect(0, Math.min(y0, y1), W, Math.abs(y1 - y0)); }
+
+// beat punch after the drop: +1.5 % per beat, exp decay
+function punch(t) {
+  if (t < bt(16)) return 1;
+  const k = Math.floor(t / B), dt = t - k * B;
+  return 1 + .015 * Math.exp(-dt * 9) + (k % 4 === 0 ? .01 * Math.exp(-dt * 7) : 0);
+}
+// chapter tag: "01 / 05  SWIMWEAR"
+function chapter(n, name, t, t0) {
+  { const g = ctx.createLinearGradient(0, 0, 0, 420); g.addColorStop(0, 'rgba(0,0,0,.6)'); g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, 420); }
+  const p = lin(t, t0 + .05, t0 + .45);
+  ctx.save(); ctx.globalAlpha = out3(p);
+  ctx.fillStyle = ACC; ctx.fillRect(72, 168, out3(p) * 64, 6);
+  ctx.restore();
+  rise(`0${n} / 05`, font('It', 30, 600), 72, 238, p, { align: 'left', track: 6 });
+  rise(name, font('Unb', 46, 800), 72, 300, lin(t, t0 + .12, t0 + .55), { align: 'left', shadow: 1 });
+}
+// whip transition: incoming scene enters from below already moving; blur scales with speed
+function whipOffset(t, t0, dir = 1) { const p = lin(t, t0, t0 + .22); return dir * (1 - out5(p)) * H * .9; }
+
+// ======================= SCENES v4: lookbook / offer for lingerie & clothing stores =======================
+const PAPER = '#f2ede6', BURG = '#7a1f2b', INK2 = '#151312', MUTE = '#8b847b';
+const SC = [];
+const scene = (a, b, fn) => SC.push({ a: bt(a), b: bt(b), fn });
+function paper() { ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H); }
+function txt(str, f, x, y, o = {}) { ctx.save(); ctx.font = f; ctx.fillStyle = o.color || INK2; ctx.textAlign = o.align || 'center'; if (o.track) ctx.letterSpacing = o.track + 'px'; ctx.globalAlpha = o.alpha ?? 1; ctx.fillText(str, x, y); ctx.restore(); }
+function smallcaps(str, x, y, a = 1, o = {}) { label(str, x, y, a, { color: o.color || INK2, size: o.size || 24, track: o.track ?? 6, align: o.align }); }
+function hairline(x, y, w, p, col = INK2) { ctx.fillStyle = col; ctx.fillRect(x, y, w * out5(p), 2); }
+// magazine chrome on every paper scene
+function chrome(t, page) {
+  smallcaps('LOOKBOOK', 70, 120, .9);
+  smallcaps(page, W - 70, 120, .9, { align: 'right' });
+  hairline(70, 140, W - 140, lin(t, 0, .6));
+}
+// a framed clip; the frame opens vertically from a line
+async function frame(clip, src, x, y, w, h, open = 1, o = {}) {
+  if (open <= 0) return;
+  const hh = h * out5(open), yy = y + (h - hh) / 2;
+  ctx.save(); ctx.beginPath(); ctx.rect(x, yy, w, hh); ctx.clip();
+  await vid(clip, src, x, y, w, h, { zoom: o.zoom || 1.02, fx: o.fx ?? .5, fy: o.fy ?? .4 });
+  ctx.restore();
+}
+
+// 0-16: hook and build-up, one frame, cuts inside it every 2 beats after beat 8
+const HOOK = [['lace', 4.0], ['fire', 1.0], ['beach', 1.0], ['dress', 0.6]];
+scene(0, 16, async (t) => {
+  paper(); chrome(t, 'AI-МОДЕЛИ ДЛЯ МАГАЗИНОВ');
+  const fw = 560, fh = 860, fx = (W - fw) / 2, fy = 620;
+  let clip = HOOK[0], k = 0;
+  if (t >= bt(8)) { k = Math.min(3, Math.floor((t - bt(8)) / (2 * B))); clip = HOOK[k]; }
+  await frame(clip[0], clip[1] + (t - (t >= bt(8) ? bt(8 + 2 * k) : 0)) * .9, fx, fy, fw, fh, lin(t, .5, 1.3));
+  // headline
+  rise('Новая коллекция.', font('Pf', 92, 700), W / 2, 360, lin(t, .15, .7), { color: INK2 });
+  rise('Ноль съёмок.', font('PfI', 92, 700), W / 2, 470, lin(t, .5, 1.05), { color: BURG });
+  // captions under the frame
+  if (t < bt(8)) {
+    rise('фото и видео для вашего магазина', font('PfI', 46, 600), W / 2, 1580, lin(t, 1.3, 1.8), { color: INK2 });
+  } else {
+    const W3 = ['МОДЕЛЬ', 'ЛОКАЦИЯ', 'СВЕТ', 'ОБРАЗ'];
+    for (let i = 0; i <= k; i++) {
+      const p = lin(t, bt(8 + 2 * i), bt(8 + 2 * i) + .35);
+      rise(W3[i], font('It', 34, 700), 180 + i * 240, 1580, p, { color: i === k ? BURG : INK2, track: 6 });
+    }
+    rise('на ваш выбор', font('PfI', 46, 600), W / 2, 1670, lin(t, bt(14), bt(14) + .4), { color: INK2 });
+  }
+  smallcaps('ПРИМЕР', fx, fy + fh + 40, .55 * out3(lin(t, 1, 1.5)), { size: 20 });
+  smallcaps(['01', '02', '03', '04'][k], fx + fw, fy + fh + 40, .55 * out3(lin(t, 1, 1.5)), { size: 20, align: 'right' });
+});
+
+// 16-32: product-card carousel; swipes on beats 20, 24, 28
+const CARDS = [
+  ['lace', 4.0, 'БЕЛЬЁ', 'Комплект кружевной', 'пудровый', ['#e9cfc3', '#151312', '#f5f1ea']],
+  ['fire', 1.0, 'БЕЛЬЁ', 'Комплект «Ночь»', 'чёрный', ['#151312', '#7a1f2b', '#e9cfc3']],
+  ['beach', 1.0, 'КУПАЛЬНИКИ', 'Купальник на завязках', 'песочный', ['#d9c2a3', '#151312', '#f5f1ea']],
+  ['dress', 0.4, 'ПЛАТЬЯ', 'Платье миди', 'шампань', ['#e8d8c0', '#151312', '#7a1f2b']],
+];
+async function card(c, src, cx, alpha = 1) {
+  const w = 760, h = 1360, x = cx - w / 2, y = 330;
+  ctx.save(); ctx.globalAlpha = alpha;
+  ctx.shadowColor = 'rgba(40,30,20,.18)'; ctx.shadowBlur = 50; ctx.shadowOffsetY = 20;
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.roundRect(x, y, w, h, 28); ctx.fill(); ctx.shadowColor = 'transparent';
+  const ih = w * 4 / 3;
+  ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, ih, [28, 28, 0, 0]); ctx.clip();
+  await vid(c[0], src, x, y, w, ih, { zoom: 1.0, fy: .42 });
+  ctx.restore();
+  // badge
+  ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.beginPath(); ctx.roundRect(x + 24, y + 24, 210, 52, 26); ctx.fill();
+  txt(c[2], font('It', 22, 700), x + 129, y + 58, { track: 3 });
+  const ty = y + ih + 70;
+  txt(c[3], font('Pf', 44, 700), x + 36, ty, { align: 'left' });
+  txt(c[4], font('PfI', 34, 600), x + 36, ty + 48, { align: 'left', color: MUTE });
+  // colour dots and sizes
+  c[5].forEach((col, i) => { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x + w - 150 + i * 46, ty - 14, 15, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.15)'; ctx.lineWidth = 2; ctx.stroke(); });
+  ['XS', 'S', 'M', 'L'].forEach((s, i) => { ctx.strokeStyle = i === 2 ? INK2 : '#d8d2ca'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(x + 36 + i * 92, ty + 82, 76, 52, 10); ctx.stroke();
+    txt(s, font('It', 24, 700), x + 74 + i * 92, ty + 117, { color: i === 2 ? INK2 : MUTE }); });
+  ctx.fillStyle = INK2; ctx.beginPath(); ctx.roundRect(x + w - 300, ty + 82, 264, 52, 26); ctx.fill();
+  txt('В КОРЗИНУ', font('It', 22, 700), x + w - 168, ty + 116, { color: '#fff', track: 3 });
+  ctx.restore();
+}
+scene(16, 32, async (t) => {
+  paper(); chrome(t - bt(16), 'КАРТОЧКИ ТОВАРА');
+  const k = Math.min(3, Math.floor((t - bt(16)) / (4 * B)));
+  // swipe: the card slides out left while the next comes in from the right, eased, 0.5 s
+  const ts = bt(16 + 4 * k), sw = k < 3 ? io(lin(t, ts + 4 * B - .5, ts + 4 * B)) : 0;
+  const enter = k === 0 ? out5(lin(t, bt(16), bt(16) + .5)) : 1;
+  await card(CARDS[k], CARDS[k][1] + (t - ts), W / 2 - sw * 900 + (1 - enter) * 900);
+  if (sw > 0) await card(CARDS[k + 1], CARDS[k + 1][1], W / 2 + 900 - sw * 900);
+  rise('Фото и видео для карточек', font('PfI', 50, 600), W / 2, 260, lin(t, bt(16) + .2, bt(16) + .7), { color: INK2 });
+  // pager dots
+  for (let i = 0; i < 4; i++) { ctx.fillStyle = i === k ? INK2 : '#cfc8bf'; ctx.beginPath(); ctx.arc(W / 2 - 45 + i * 30, 1760, i === k ? 7 : 5, 0, 7); ctx.fill(); }
+  smallcaps('ПРИМЕР КАРТОЧКИ', W / 2, 1830, .5, { align: 'center', size: 20 });
+});
+
+// 32-40: not only lingerie, three portrait cards, full figure visible
+const SPREAD = [['yoga', 0.0, 'СПОРТ'], ['morning', 0.0, 'ДОМАШНЯЯ'], ['unbox', 1.6, 'БАЗОВЫЙ']];
+scene(32, 40, async (t) => {
+  paper(); chrome(t - bt(32), 'НЕ ТОЛЬКО БЕЛЬЁ');
+  rise('Любая категория', font('Pf', 84, 700), W / 2, 380, lin(t, bt(32), bt(32) + .5), { color: INK2 });
+  rise('вашего магазина', font('PfI', 84, 700), W / 2, 480, lin(t, bt(32) + .25, bt(32) + .75), { color: BURG });
+  const w = 310, h = w * 16 / 9, g = 24, x0 = (W - 3 * w - 2 * g) / 2, y = 640;
+  for (let i = 0; i < 3; i++) {
+    const p = spring(t - bt(32.5) - i * B, 2, .82);
+    if (p <= 0) continue;
+    const x = x0 + i * (w + g);
+    ctx.save(); ctx.globalAlpha = clamp(p * 1.4); ctx.translate(0, (1 - p) * 60);
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    const s = SPREAD[i]; await vid(s[0], s[1] + (t - bt(32)) * (s[0] === 'morning' ? .8 : 1), x, y, w, h, { zoom: 1, fy: .45 });
+    ctx.restore();
+    ctx.save(); ctx.globalAlpha = clamp(p * 1.4);
+    hairline(x, y + h + 30, w, p); smallcaps(s[2], x, y + h + 70, 1, { size: 24 }); ctx.restore();
+  }
+  rise('одежда · бельё · купальники · спорт', font('PfI', 44, 600), W / 2, 1700, lin(t, bt(36), bt(36) + .5), { color: INK2 });
+});
+
+// 40-48: formats, UGC phone with the unboxing clip
+scene(40, 48, async (t) => {
+  paper(); chrome(t - bt(40), 'ФОРМАТЫ');
+  const pw = 470, ph = 940, px = 90, py = 470;
+  const p = spring(t - bt(40), 1.8, .82);
+  ctx.save(); ctx.translate(0, (1 - p) * 120); ctx.globalAlpha = clamp(p * 1.3);
+  ctx.fillStyle = INK2; ctx.beginPath(); ctx.roundRect(px - 16, py - 16, pw + 32, ph + 32, 64); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(px, py, pw, ph, 50); ctx.clip();
+  await vid('unbox', 2.5 + (t - bt(40)), px, py, pw, ph, { zoom: 1, fy: .45 });
+  ctx.restore();
+  rise('Что получаете', font('Pf', 76, 700), W / 2, 330, lin(t, bt(40), bt(40) + .5), { color: INK2 });
+  const F = ['Фото для карточек', 'Видео-обложки', 'Рилс и сторис', 'UGC-распаковки', 'Лукбуки коллекций'];
+  F.forEach((s, i) => {
+    const q = lin(t, bt(41 + i), bt(41 + i) + .4);
+    const y = 560 + i * 170;
+    ctx.save(); ctx.globalAlpha = out3(q); hairline(620, y + 40, 390, q, '#cfc8bf'); ctx.restore();
+    rise(String(i + 1).padStart(2, '0'), font('It', 26, 700), 620, y - 44, q, { align: 'left', color: BURG, track: 4 });
+    rise(s, font('PfI', 46, 600), 620, y + 22, q, { align: 'left', color: INK2 });
+  });
+});
+
+// 48-60: CTA
+scene(48, 61.5, async (t) => {
+  paper(); chrome(t - bt(48), 'СВЯЗАТЬСЯ');
+  const fw = 380, fh = 560, fx = (W - fw) / 2, fy = 300;
+  await frame('lace', 6 + (t - bt(48)) * .8, fx, fy, fw, fh, lin(t, bt(48), bt(48) + .7), { fy: .35 });
+  words('Контент для вашего', font('Pf', 76, 700), W / 2, 1040, bt(48.5), t, { color: INK2 });
+  words('магазина', font('PfI', 76, 700), W / 2, 1130, bt(49), t, { color: BURG });
+  rise('без студии, фотографа и моделей', font('PfI', 44, 600), W / 2, 1230, lin(t, bt(50), bt(50) + .5), { color: MUTE });
+  const bp = spring(t - bt(52), 2, .82);
+  if (bp > 0) {
+    ctx.save(); ctx.translate(W / 2, 1420); ctx.scale(mix(.9, 1, bp), mix(.9, 1, bp)); ctx.globalAlpha = clamp(bp * 1.5);
+    ctx.fillStyle = INK2; ctx.beginPath(); ctx.roundRect(-380, -70, 760, 140, 70); ctx.fill();
+    txt('НАПИСАТЬ В ДИРЕКТ', font('It', 40, 800), 0, 14, { color: PAPER, track: 5 });
+    ctx.restore();
+  }
+  smallcaps('модели на видео созданы нейросетью', W / 2, 1800, .55 * out3(lin(t, bt(54), bt(55))), { align: 'center', size: 20, track: 3 });
+});
+
+let lastT = -1;
+window.seek = async (t) => {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.filter = 'none'; ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H);
+  const s = SC.find(s => t >= s.a && t < s.b) || SC[SC.length - 1];
+  const p = 1;
+  ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(p, p); ctx.translate(-W / 2, -H / 2);
+  await s.fn(t);
+  ctx.restore();
+  texture(t);
+  lastT = t;
+  document.getElementById('hud').textContent = location.search.includes('hud') ? `${t.toFixed(2)}s  beat ${(t / B).toFixed(1)}` : '';
+};
+window.frameJPEG = async (t) => { await window.seek(t); return c.toDataURL('image/jpeg', .93); };
+
+// preview: Space play/pause, arrows step a frame
+let playing = false, t0 = 0, start = 0;
+addEventListener('keydown', e => {
+  if (e.code === 'Space') { playing = !playing; start = performance.now() - lastT * 1000; if (playing) loop(); }
+  if (e.code === 'ArrowRight') seek(lastT + 1 / FPS); if (e.code === 'ArrowLeft') seek(Math.max(0, lastT - 1 / FPS));
+});
+async function loop() { if (!playing) return; await seek(((performance.now() - start) / 1000) % T); requestAnimationFrame(loop); }
+document.fonts.ready.then(async () => {
+  await Promise.all(['900 10px Unb', '700 10px PfI', '600 10px PfI', '700 10px Pf', '600 10px It', '700 10px It', '800 10px It'].map(f => document.fonts.load(f, 'АБВ AI')));
+  await seek(0); window.ready = true;
+});
+</script></body></html>

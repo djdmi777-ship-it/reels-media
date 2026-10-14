@@ -11,7 +11,11 @@ FPS = 30
 HTML = os.environ.get("HTML", "reel.html")
 BEATS = int(os.environ.get("BEATS", "80"))
 OUT = os.environ.get("OUT", "out")
-SONG_DROP, FILM_DROP = 130.87, 16 * 60 / 154
+BPM = float(os.environ.get("BPM", "154"))
+MUSIC = os.environ.get("MUSIC", "src/music.mp3")
+SONG_DROP = float(os.environ.get("SONG_DROP", "130.87"))
+FILM_DROP = 16 * 60 / BPM
+TAIL = float(os.environ.get("TAIL", "0.5"))
 
 
 def serve(port):
@@ -64,14 +68,14 @@ async def main():
 
 
 def encode():
-    T = BEATS * 60 / 154 + 0.5
+    T = BEATS * 60 / BPM + TAIL
     ss = SONG_DROP - FILM_DROP
     frames = sorted(os.listdir(os.path.join(HERE, OUT, "frames")))
     assert len(frames) == int(round(T * FPS)), f"frame count {len(frames)}"
     af = (f"atrim=0:{T:.3f},afade=t=in:st=0:d=0.25,afade=t=out:st={T - 1.6:.3f}:d=1.6,"
           "loudnorm=I=-14:TP=-1.3:LRA=11")
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-framerate", str(FPS), "-i", f"{OUT}/frames/%05d.jpg",
-                    "-ss", f"{ss:.3f}", "-i", "src/music.mp3",
+                    "-ss", f"{ss:.3f}", "-i", MUSIC,
                     "-vf", "scale=in_range=pc:out_range=tv:out_color_matrix=bt709,format=yuv420p",
                     "-af", af, "-c:v", "libx264", "-crf", "16", "-preset", "slow",
                     "-color_range", "tv", "-colorspace", "bt709", "-c:a", "aac", "-b:a", "256k",
