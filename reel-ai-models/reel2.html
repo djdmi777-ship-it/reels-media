@@ -1,0 +1,307 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>AI models reel</title>
+<style>
+@font-face{font-family:Unb;src:url(fonts/unbounded-cyrillic.woff2),url(fonts/unbounded-latin.woff2);font-weight:200 900}
+@font-face{font-family:Unb;src:url(fonts/unbounded-latin.woff2);unicode-range:U+0000-00FF;font-weight:200 900}
+@font-face{font-family:Pf;src:url(fonts/playfair-display-cyrillic.woff2);unicode-range:U+0400-04FF;font-weight:400 900}
+@font-face{font-family:Pf;src:url(fonts/playfair-display-latin.woff2);unicode-range:U+0000-00FF,U+2000-206F;font-weight:400 900}
+@font-face{font-family:PfI;src:url(fonts/playfair-display-italic-cyrillic.woff2);unicode-range:U+0400-04FF;font-weight:400 900}
+@font-face{font-family:PfI;src:url(fonts/playfair-display-italic-latin.woff2);unicode-range:U+0000-00FF,U+2000-206F;font-weight:400 900}
+@font-face{font-family:It;src:url(fonts/inter-tight-cyrillic.woff2);unicode-range:U+0400-04FF;font-weight:100 900}
+@font-face{font-family:It;src:url(fonts/inter-tight-latin.woff2);unicode-range:U+0000-00FF,U+2000-206F;font-weight:100 900}
+html,body{margin:0;background:#000;overflow:hidden}
+canvas{display:block;width:1080px;height:1920px}
+#hud{position:fixed;left:8px;top:8px;color:#0f0;font:14px monospace;z-index:9}
+</style></head><body>
+<canvas id="c" width="1080" height="1920"></canvas><div id="hud"></div>
+<script>
+const W = 1080, H = 1920, FPS = 30;
+const B = 60 / 154;                // one beat (track analysed: 154 BPM)
+const bt = n => n * B;
+const T = bt(76) + 0.5;             // film length
+window.T = T;
+const CREAM = '#f4ede3', ACC = '#ff5a36', INK = '#0a0909';
+const CLIPS = { fire: 301, beach: 301, lips: 181, yoga: 241, dress: 301, lace: 361, laundry: 300, makeup: 361, morning: 224, selfie: 180, unbox: 451 };
+const c = document.getElementById('c'), ctx = c.getContext('2d');
+
+// ---------- math ----------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lin = (t, a, b) => clamp((t - a) / (b - a));
+const out3 = x => 1 - Math.pow(1 - x, 3);
+const out5 = x => 1 - Math.pow(1 - x, 5);
+const in3 = x => x * x * x;
+const io = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const expo = x => x <= 0 ? 0 : x >= 1 ? 1 : 1 - Math.pow(2, -10 * x);
+const mix = (a, b, p) => a + (b - a) * p;
+// spring step response, damping ratio z >= .72 (tiny overshoot, no cartoon bounce)
+function spring(t, f = 2.2, z = .76) {
+  if (t <= 0) return 0;
+  const w = 2 * Math.PI * f, wd = w * Math.sqrt(1 - z * z);
+  return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t));
+}
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+// ---------- frames ----------
+const cache = new Map();
+function frameIdx(clip, s) {
+  const n = CLIPS[clip]; let i = Math.floor(s * FPS);
+  const p = 2 * (n - 1); i = ((i % p) + p) % p; if (i >= n) i = p - i;   // ping-pong, never runs out
+  return i + 1;
+}
+async function img(clip, s) {
+  const k = clip + frameIdx(clip, s);
+  if (cache.has(k)) return cache.get(k);
+  const im = new Image(); im.src = `frames/${clip}/${String(frameIdx(clip, s)).padStart(4, '0')}.jpg`;
+  await im.decode(); cache.set(k, im);
+  if (cache.size > 120) cache.delete(cache.keys().next().value);
+  return im;
+}
+// draw a source frame covering rect (x,y,w,h); zoom around focus (fx,fy in 0..1 of source)
+async function vid(clip, s, x, y, w, h, o = {}) {
+  const im = await img(clip, s);
+  const z = o.zoom || 1, fx = o.fx ?? .5, fy = o.fy ?? .5;
+  const ar = w / h; let sw = W, sh = W / ar; if (sh > H) { sh = H; sw = H * ar; }
+  sw /= z; sh /= z;
+  const sx = clamp(fx * W - sw / 2, 0, W - sw), sy = clamp(fy * H - sh / 2, 0, H - sh);
+  ctx.save();
+  if (o.filter) ctx.filter = o.filter;
+  if (o.alpha != null) ctx.globalAlpha = o.alpha;
+  ctx.drawImage(im, sx, sy, sw, sh, x, y, w, h);
+  ctx.restore();
+}
+
+// ---------- type ----------
+function font(fam, size, wt = 800) { return `${wt} ${size}px ${fam}`; }
+// masked rise: text slides up from behind its own baseline mask
+function rise(str, f, x, y, p, o = {}) {
+  ctx.save(); ctx.font = f; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
+  if (o.track) ctx.letterSpacing = o.track + 'px';
+  const m = ctx.measureText(str), asc = m.actualBoundingBoxAscent, desc = m.actualBoundingBoxDescent;
+  const wdt = m.width; const left = o.align === 'left' ? x : o.align === 'right' ? x - wdt : x - wdt / 2;
+  ctx.beginPath(); ctx.rect(left - 40, y - asc - 12, wdt + 80, asc + desc + 24); ctx.clip();
+  const h = asc + desc + 20;
+  ctx.translate(0, (1 - out5(p)) * h);
+  if (o.rot) ctx.rotate((1 - out5(p)) * o.rot);
+  ctx.globalAlpha = o.alpha ?? 1;
+  ctx.fillStyle = o.color || CREAM;
+  if (o.track) ctx.letterSpacing = o.track + 'px';
+  if (o.shadow) { ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 30; }
+  ctx.fillText(str, x, y);
+  ctx.restore();
+}
+// word by word rise, 55 ms stagger
+function words(str, f, x, y, t0, t, o = {}) {
+  ctx.save(); ctx.font = f; if (o.track) ctx.letterSpacing = o.track + 'px';
+  const ws = str.split(' '); const sp = ctx.measureText(' ').width;
+  const widths = ws.map(w => ctx.measureText(w).width); const tot = widths.reduce((a, b) => a + b, 0) + sp * (ws.length - 1);
+  ctx.restore();
+  let cx = (o.align === 'left') ? x : x - tot / 2;
+  ws.forEach((w, i) => { rise(w, f, cx, y, lin(t, t0 + i * .055, t0 + i * .055 + .5), { ...o, align: 'left', rot: .04 }); cx += widths[i] + sp; });
+}
+function label(str, x, y, a = 1, o = {}) {
+  ctx.save(); ctx.font = font('It', o.size || 30, 600); ctx.letterSpacing = (o.track ?? 6) + 'px';
+  ctx.textAlign = o.align || 'left'; ctx.fillStyle = o.color || CREAM; ctx.globalAlpha = a;
+  ctx.fillText(str, x, y); ctx.restore();
+}
+
+// ---------- film texture ----------
+const layer = document.createElement('canvas'); layer.width = W; layer.height = H;
+const grain = document.createElement('canvas'); grain.width = grain.height = 512;
+{ const g = grain.getContext('2d'), d = g.createImageData(512, 512), r = mulberry(7);
+  for (let i = 0; i < d.data.length; i += 4) { const v = r() * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; }
+  g.putImageData(d, 0, 0); }
+function texture(t) {
+  const f = Math.round(t * FPS), r = mulberry(f * 13 + 1);
+  ctx.save(); ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = .07;
+  const ox = -r() * 512, oy = -r() * 512;
+  for (let x = ox; x < W; x += 512) for (let y = oy; y < H; y += 512) ctx.drawImage(grain, x, y);
+  ctx.restore();
+  const v = ctx.createRadialGradient(W / 2, H / 2, H * .25, W / 2, H / 2, H * .75);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.55)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+}
+function shade(a, col = '0,0,0') { ctx.fillStyle = `rgba(${col},${a})`; ctx.fillRect(0, 0, W, H); }
+function grad(y0, y1, a) { const g = ctx.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(0,0,0,${a})`); ctx.fillStyle = g; ctx.fillRect(0, Math.min(y0, y1), W, Math.abs(y1 - y0)); }
+
+// beat punch after the drop: +1.5 % per beat, exp decay
+function punch(t) {
+  if (t < bt(16)) return 1;
+  const k = Math.floor(t / B), dt = t - k * B;
+  return 1 + .015 * Math.exp(-dt * 9) + (k % 4 === 0 ? .01 * Math.exp(-dt * 7) : 0);
+}
+// chapter tag: "01 / 05  SWIMWEAR"
+function chapter(n, name, t, t0) {
+  { const g = ctx.createLinearGradient(0, 0, 0, 420); g.addColorStop(0, 'rgba(0,0,0,.6)'); g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, 420); }
+  const p = lin(t, t0 + .05, t0 + .45);
+  ctx.save(); ctx.globalAlpha = out3(p);
+  ctx.fillStyle = ACC; ctx.fillRect(72, 168, out3(p) * 64, 6);
+  ctx.restore();
+  rise(`0${n} / 05`, font('It', 30, 600), 72, 238, p, { align: 'left', track: 6 });
+  rise(name, font('Unb', 46, 800), 72, 300, lin(t, t0 + .12, t0 + .55), { align: 'left', shadow: 1 });
+}
+// whip transition: incoming scene enters from below already moving; blur scales with speed
+function whipOffset(t, t0, dir = 1) { const p = lin(t, t0, t0 + .22); return dir * (1 - out5(p)) * H * .9; }
+
+// ======================= SCENES v2: "Сколько из них настоящих?" =======================
+const SC = [];
+const scene = (a, b, fn) => SC.push({ a: bt(a), b: bt(b), fn });
+// one shot per model, hard cuts on the beat; [clip, from beat, to beat, source start s, focus x, focus y, zoom]
+const SHOTS = [
+  ['morning', 0, 6, 0.0, .55, .58, 1.10],
+  ['selfie', 6, 10, 0.0, .5, .45, 1.04],
+  ['laundry', 10, 13, 0.2, .5, .45, 1.04],
+  ['unbox', 13, 16, 1.6, .5, .45, 1.04],
+  ['dress', 16, 20, 0.3, .5, .4, 1.02],
+  ['yoga', 20, 24, 0.0, .5, .5, 1.0],
+  ['beach', 24, 28, 1.0, .5, .45, 1.02],
+  ['makeup', 28, 32, 0.0, .5, .45, 1.02],
+  ['lace', 32, 36, 4.0, .5, .45, 1.02],
+  ['fire', 36, 40, 1.0, .5, .45, 1.02],
+];
+// a shot: full frame, one slow push-in, no shake
+async function shot(s, t, o = {}) {
+  const [clip, a, b, src, fx, fy, z0] = s, p = lin(t, bt(a), bt(b));
+  await vid(clip, src + (t - bt(a)), 0, 0, W, H, { zoom: z0 * mix(1, 1.05, p), fx, fy, ...o });
+}
+function counter(n, t, tCut) {
+  const p = lin(t, tCut, tCut + .3);
+  { const g = ctx.createLinearGradient(0, 0, 0, 380); g.addColorStop(0, 'rgba(0,0,0,.55)'); g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, 380); }
+  rise(String(n).padStart(2, '0'), font('Unb', 120, 900), W - 70, 250, p, { align: 'right' });
+  label('НАСТОЯЩАЯ?', W - 70, 300, .85, { align: 'right', size: 26, track: 6 });
+  label('СКОЛЬКО ИЗ НИХ НАСТОЯЩИХ', 70, 170, .7, { size: 24, track: 5 });
+}
+
+// 0-16 build-up, 16-40 after the drop: one model per shot, counter ticks
+scene(0, 40, async (t) => {
+  const i = SHOTS.findIndex(s => t < bt(s[2]));
+  const s = SHOTS[i < 0 ? SHOTS.length - 1 : i];
+  await shot(s, t);
+  if (t < bt(6)) {
+    // hook: the question, big, on the first shot
+    grad(H * .5, H, .8);
+    { const g = ctx.createLinearGradient(0, 0, 0, 700); g.addColorStop(0, 'rgba(0,0,0,.6)'); g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, 700); }
+    words('Сколько из них', font('PfI', 112, 700), W / 2, 1460, .1, t);
+    words('настоящих?', font('PfI', 150, 700), W / 2, 1620, .45, t);
+    const u = out5(lin(t, 1.2, 1.6)); ctx.fillStyle = ACC; ctx.fillRect(W / 2 - 260 * u, 1665, 520 * u, 7);
+    rise('ОТВЕТ В КОНЦЕ', font('It', 30, 700), W / 2, 1760, lin(t, 1.5, 2.0), { track: 10, color: CREAM });
+    rise('01', font('Unb', 120, 900), W - 70, 250, lin(t, .2, .5), { align: 'right' });
+  } else {
+    counter(i + 1, t, bt(s[1]));
+  }
+  // single flash on the drop
+  const fl = 1 - lin(t, bt(16), bt(16) + .18);
+  if (t >= bt(16) && fl > 0) shade(fl * .9, '244,237,227');
+});
+
+// grid of all ten
+const G = { cols: 5, rows: 2, g: 12 };
+function tileRect(i) {
+  const tw = (W - G.g * (G.cols + 1)) / G.cols, th = tw * 16 / 9;
+  const col = i % G.cols, row = Math.floor(i / G.cols);
+  const y0 = (H - (th * 2 + G.g)) / 2 + 40;
+  return [G.g + col * (tw + G.g), y0 + row * (th + G.g), tw, th];
+}
+const small = document.createElement('canvas'); small.width = 216; small.height = 384;
+async function tile(i, t, o = {}) {
+  const s = SHOTS[i], [x, y, w, h] = tileRect(i);
+  const pix = o.pix || 0, alpha = o.alpha ?? 1;
+  if (alpha <= 0) return;
+  ctx.save(); ctx.globalAlpha = alpha;
+  if (pix > 1) {
+    const sc = small.getContext('2d'), q = Math.max(2, Math.round(w / pix)), r = Math.round(q * h / w);
+    const im = await img(s[0], s[3] + 2 + (t - bt(40)));
+    sc.imageSmoothingEnabled = true; sc.clearRect(0, 0, small.width, small.height);
+    const sw = W / s[6], sh = sw * h / w; sc.drawImage(im, (W - sw) * s[4], (H - sh) * s[5], sw, sh, 0, 0, q, r);
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(small, 0, 0, q, r, x, y, w, h); ctx.imageSmoothingEnabled = true;
+  } else {
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 14); ctx.clip();
+    await vid(s[0], s[3] + 2 + (t - bt(40)), x, y, w, h, { zoom: 1, fx: s[4], fy: s[5] * .8 });
+  }
+  ctx.restore();
+}
+scene(40, 56, async (t) => {
+  ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 10; i++) {
+    const tin = bt(40) + i * .06, pin = out3(lin(t, tin, tin + .35));
+    const td = bt(48.5) + i * B / 2;                       // one tile dissolves per half beat
+    const d = lin(t, td, td + .4);
+    if (pin <= 0) continue;
+    ctx.save(); const [x, y, w, h] = tileRect(i);
+    ctx.translate(x + w / 2, y + h / 2); ctx.scale(mix(.9, 1, pin), mix(.9, 1, pin)); ctx.translate(-x - w / 2, -y - h / 2);
+    await tile(i, t, { pix: d > 0 ? mix(1, 60, out3(d)) : 0, alpha: pin * (1 - in3(lin(t, td + .2, td + .45))) });
+    ctx.restore();
+  }
+  if (t < bt(48)) {
+    words('Ну что?', font('PfI', 110, 700), W / 2, 400, bt(40) + .2, t);
+    words('Сколько настоящих?', font('PfI', 96, 700), W / 2, 520, bt(40) + .5, t);
+    // countdown 3 2 1 on beats 45, 46, 47
+    for (let k = 0; k < 3; k++) {
+      const a = bt(45 + k), b = bt(46 + k);
+      if (t >= a && t < b) { const p = lin(t, a, a + .2); ctx.save(); ctx.globalAlpha = 1 - lin(t, b - .12, b);
+        rise(String(3 - k), font('Unb', 200, 900), W / 2, 1640, p, { color: ACC }); ctx.restore(); }
+    }
+  } else {
+    const p = lin(t, bt(48), bt(48) + .45);
+    rise('НИ ОДНОЙ.', font('Unb', 130, 900), W / 2, 500, p, { color: ACC });
+    if (t > bt(52)) {
+      words('Все 10 девушек', font('PfI', 80, 700), W / 2, 1520, bt(52), t);
+      words('созданы нейросетью', font('PfI', 80, 700), W / 2, 1620, bt(52.5), t);
+    }
+  }
+});
+
+// 56-64 offer over one calm shot
+scene(56, 64, async (t) => {
+  const p = lin(t, bt(56), bt(64));
+  await vid('lace', 6 + (t - bt(56)), 0, 0, W, H, { zoom: mix(1.04, 1.1, p), fy: .4, filter: 'brightness(.6)' });
+  const fin = lin(t, bt(56), bt(56) + .35); if (fin < 1) shade(1 - fin, '10,9,9');
+  grad(H * .45, H, .85);
+  words('Сделаю такую модель', font('PfI', 88, 700), W / 2, 1300, bt(56) + .1, t);
+  words('для вашего бренда', font('PfI', 88, 700), W / 2, 1410, bt(56) + .4, t);
+  const items = ['ФОТО', 'ВИДЕО', 'РИЛС', 'UGC-РЕКЛАМА'];
+  items.forEach((s, k) => rise(s, font('It', 40, 700), W / 2, 1560 + k * 62, lin(t, bt(59 + k), bt(59 + k) + .4), { track: 10, color: k % 2 ? CREAM : ACC }));
+});
+
+// 64-76 CTA
+scene(64, 77.5, async (t) => {
+  await vid('lace', 9 + (t - bt(64)) * .6, 0, 0, W, H, { zoom: 1.15, filter: 'blur(26px) brightness(.3)' });
+  words('Хотите так же?', font('PfI', 100, 700), W / 2, 820, bt(64) + .05, t);
+  const bp = spring(t - bt(65), 2, .8);
+  if (bp > 0) {
+    ctx.save(); ctx.translate(W / 2, 1060); ctx.scale(mix(.85, 1, bp), mix(.85, 1, bp)); ctx.globalAlpha = clamp(bp * 1.5);
+    ctx.fillStyle = ACC; ctx.beginPath(); ctx.roundRect(-400, -90, 800, 180, 90); ctx.fill();
+    ctx.fillStyle = INK; ctx.font = font('Unb', 64, 900); ctx.textAlign = 'center'; ctx.fillText('ПИШИ В ДИРЕКТ', 0, 24);
+    ctx.restore();
+  }
+  rise('фото и видео под ключ', font('PfI', 54, 600), W / 2, 1260, lin(t, bt(67), bt(67) + .5));
+  ctx.save(); ctx.globalAlpha = out3(lin(t, bt(68), bt(69))) * .75;
+  label('все модели на видео созданы нейросетью', W / 2, 1720, 1, { align: 'center', size: 26, track: 3 }); ctx.restore();
+});
+
+let lastT = -1;
+window.seek = async (t) => {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.filter = 'none'; ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H);
+  const s = SC.find(s => t >= s.a && t < s.b) || SC[SC.length - 1];
+  const p = 1;
+  ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(p, p); ctx.translate(-W / 2, -H / 2);
+  await s.fn(t);
+  ctx.restore();
+  texture(t);
+  lastT = t;
+  document.getElementById('hud').textContent = location.search.includes('hud') ? `${t.toFixed(2)}s  beat ${(t / B).toFixed(1)}` : '';
+};
+window.frameJPEG = async (t) => { await window.seek(t); return c.toDataURL('image/jpeg', .93); };
+
+// preview: Space play/pause, arrows step a frame
+let playing = false, t0 = 0, start = 0;
+addEventListener('keydown', e => {
+  if (e.code === 'Space') { playing = !playing; start = performance.now() - lastT * 1000; if (playing) loop(); }
+  if (e.code === 'ArrowRight') seek(lastT + 1 / FPS); if (e.code === 'ArrowLeft') seek(Math.max(0, lastT - 1 / FPS));
+});
+async function loop() { if (!playing) return; await seek(((performance.now() - start) / 1000) % T); requestAnimationFrame(loop); }
+document.fonts.ready.then(async () => {
+  await Promise.all(['900 10px Unb', '700 10px PfI', '700 10px Pf', '600 10px It'].map(f => document.fonts.load(f, 'АБВ AI')));
+  await seek(0); window.ready = true;
+});
+</script></body></html>
