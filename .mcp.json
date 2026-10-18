@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "hub": {
+      "type": "http",
+      "url": "https://hub.godkod.ru/mcp",
+      "headers": {
+        "Authorization": "Bearer ${HUB_API_KEY}"
+      }
+    }
+  }
+}

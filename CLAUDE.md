@@ -6,7 +6,10 @@
 ## Инструменты
 - Скиллы лежат в репозитории (`.claude/skills/`) и подхватываются в каждом чате:
   `ghost-editor` (монтаж talking-head рилсов), `motion-design` (моушн-дизайн кодом: HTML + Playwright + ffmpeg),
-  `lemo-opuscar` (короткие фильмы в 40+ стилях; библиотеку сам качает в `~/lemo-opuscar`).
+  `lemo-opuscar` (короткие фильмы в 40+ стилях; библиотеку сам качает в `~/lemo-opuscar`),
+  `hub-media` (картинки, видео и транскрипция за кредиты godkod hub).
+- MCP-сервер `hub` (`.mcp.json`, `https://hub.godkod.ru/mcp`) берёт ключ из переменной окружения
+  `HUB_API_KEY` (задаётся в настройках облачного окружения, в git ключ не класть).
 - Системные зависимости (ffmpeg 9, Python-пакеты, Whisper, библиотека lemo-opuscar) живут в контейнере
   и пропадают между чатами. Если их нет: `bash scripts/install-video-tools.sh` (полная установка ~30 мин;
   ffmpeg 9 ставится в `~/.local/bin`, этот путь должен идти первым в PATH).
