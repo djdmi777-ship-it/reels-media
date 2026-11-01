@@ -1,0 +1,532 @@
+{
+  "schema_version": 1,
+  "video": "C:\\Users\\317\\reels-media\\analytics\\4rabet-repeat\\src\\in_4rabet_21.mp4",
+  "duration": 34.083333,
+  "source_frame_rate": 24.0,
+  "window": {
+    "start": 0.0,
+    "end": 34.083333
+  },
+  "mode": "overview",
+  "sampling_fps": 1.4083129722084398,
+  "scene_threshold": 0.32,
+  "scene_frames_truncated": false,
+  "frame_count": 49,
+  "frames": [
+    {
+      "timestamp": 0.0,
+      "kind": "uniform",
+      "path": "uniform\\frame_000001.jpg",
+      "sheet": "sheets/sheet_001.jpg",
+      "cell": 1
+    },
+    {
+      "timestamp": 0.7100694375000001,
+      "kind": "uniform",
+      "path": "uniform\\frame_000002.jpg",
+      "sheet": "sheets/sheet_001.jpg",
+      "cell": 2
+    },
+    {
+      "timestamp": 1.4201388750000001,
+      "kind": "uniform",
+      "path": "uniform\\frame_000003.jpg",
+      "sheet": "sheets/sheet_001.jpg",
+      "cell": 3
+    },
+    {
+      "timestamp": 2.1302083125,
+      "kind": "uniform",
+      "path": "uniform\\frame_000004.jpg",
+      "sheet": "sheets/sheet_001.jpg",
+      "cell": 4
+    },
+    {
+      "timestamp": 2.8402777500000003,
+      "kind": "uniform",
+      "path": "uniform\\frame_000005.jpg",
+      "sheet": "sheets/sheet_001.jpg",
+      "cell": 5
+    },
+    {
+      "timestamp": 3.5503471875000003,
+      "kind": "uniform",
+      "path": "uniform\\frame_000006.jpg",
+      "sheet": "sheets/sheet_001.jpg",
+      "cell": 6
+    },
+    {
+      "timestamp": 4.260416625,
+      "kind": "uniform",
+      "path": "uniform\\frame_000007.jpg",
+      "sheet": "sheets/sheet_001.jpg",
+      "cell": 7
+    },
+    {
+      "timestamp": 4.9704860625,
+      "kind": "uniform",
+      "path": "uniform\\frame_000008.jpg",
+      "sheet": "sheets/sheet_001.jpg",
+      "cell": 8
+    },
+    {
+      "timestamp": 5.6805555000000005,
+      "kind": "uniform",
+      "path": "uniform\\frame_000009.jpg",
+      "sheet": "sheets/sheet_001.jpg",
+      "cell": 9
+    },
+    {
+      "timestamp": 6.3906249375,
+      "kind": "uniform",
+      "path": "uniform\\frame_000010.jpg",
+      "sheet": "sheets/sheet_001.jpg",
+      "cell": 10
+    },
+    {
+      "timestamp": 7.100694375000001,
+      "kind": "uniform",
+      "path": "uniform\\frame_000011.jpg",
+      "sheet": "sheets/sheet_001.jpg",
+      "cell": 11
+    },
+    {
+      "timestamp": 7.8107638125,
+      "kind": "uniform",
+      "path": "uniform\\frame_000012.jpg",
+      "sheet": "sheets/sheet_001.jpg",
+      "cell": 12
+    },
+    {
+      "timestamp": 8.52083325,
+      "kind": "uniform",
+      "path": "uniform\\frame_000013.jpg",
+      "sheet": "sheets/sheet_002.jpg",
+      "cell": 1
+    },
+    {
+      "timestamp": 9.041667,
+      "kind": "scene",
+      "path": "scenes\\scene_000001.jpg",
+      "sheet": "sheets/sheet_002.jpg",
+      "cell": 2
+    },
+    {
+      "timestamp": 9.2309026875,
+      "kind": "uniform",
+      "path": "uniform\\frame_000014.jpg",
+      "sheet": "sheets/sheet_002.jpg",
+      "cell": 3
+    },
+    {
+      "timestamp": 9.940972125,
+      "kind": "uniform",
+      "path": "uniform\\frame_000015.jpg",
+      "sheet": "sheets/sheet_002.jpg",
+      "cell": 4
+    },
+    {
+      "timestamp": 10.6510415625,
+      "kind": "uniform",
+      "path": "uniform\\frame_000016.jpg",
+      "sheet": "sheets/sheet_002.jpg",
+      "cell": 5
+    },
+    {
+      "timestamp": 11.361111000000001,
+      "kind": "uniform",
+      "path": "uniform\\frame_000017.jpg",
+      "sheet": "sheets/sheet_002.jpg",
+      "cell": 6
+    },
+    {
+      "timestamp": 12.0711804375,
+      "kind": "uniform",
+      "path": "uniform\\frame_000018.jpg",
+      "sheet": "sheets/sheet_002.jpg",
+      "cell": 7
+    },
+    {
+      "timestamp": 12.781249875,
+      "kind": "uniform",
+      "path": "uniform\\frame_000019.jpg",
+      "sheet": "sheets/sheet_002.jpg",
+      "cell": 8
+    },
+    {
+      "timestamp": 13.4913193125,
+      "kind": "uniform",
+      "path": "uniform\\frame_000020.jpg",
+      "sheet": "sheets/sheet_002.jpg",
+      "cell": 9
+    },
+    {
+      "timestamp": 14.201388750000001,
+      "kind": "uniform",
+      "path": "uniform\\frame_000021.jpg",
+      "sheet": "sheets/sheet_002.jpg",
+      "cell": 10
+    },
+    {
+      "timestamp": 14.911458187500001,
+      "kind": "uniform",
+      "path": "uniform\\frame_000022.jpg",
+      "sheet": "sheets/sheet_002.jpg",
+      "cell": 11
+    },
+    {
+      "timestamp": 15.621527625,
+      "kind": "uniform",
+      "path": "uniform\\frame_000023.jpg",
+      "sheet": "sheets/sheet_002.jpg",
+      "cell": 12
+    },
+    {
+      "timestamp": 16.331597062500002,
+      "kind": "uniform",
+      "path": "uniform\\frame_000024.jpg",
+      "sheet": "sheets/sheet_003.jpg",
+      "cell": 1
+    },
+    {
+      "timestamp": 17.0416665,
+      "kind": "uniform",
+      "path": "uniform\\frame_000025.jpg",
+      "sheet": "sheets/sheet_003.jpg",
+      "cell": 2
+    },
+    {
+      "timestamp": 17.7517359375,
+      "kind": "uniform",
+      "path": "uniform\\frame_000026.jpg",
+      "sheet": "sheets/sheet_003.jpg",
+      "cell": 3
+    },
+    {
+      "timestamp": 18.461805375,
+      "kind": "uniform",
+      "path": "uniform\\frame_000027.jpg",
+      "sheet": "sheets/sheet_003.jpg",
+      "cell": 4
+    },
+    {
+      "timestamp": 19.1718748125,
+      "kind": "uniform",
+      "path": "uniform\\frame_000028.jpg",
+      "sheet": "sheets/sheet_003.jpg",
+      "cell": 5
+    },
+    {
+      "timestamp": 19.88194425,
+      "kind": "uniform",
+      "path": "uniform\\frame_000029.jpg",
+      "sheet": "sheets/sheet_003.jpg",
+      "cell": 6
+    },
+    {
+      "timestamp": 20.5920136875,
+      "kind": "uniform",
+      "path": "uniform\\frame_000030.jpg",
+      "sheet": "sheets/sheet_003.jpg",
+      "cell": 7
+    },
+    {
+      "timestamp": 21.302083125,
+      "kind": "uniform",
+      "path": "uniform\\frame_000031.jpg",
+      "sheet": "sheets/sheet_003.jpg",
+      "cell": 8
+    },
+    {
+      "timestamp": 22.012152562500003,
+      "kind": "uniform",
+      "path": "uniform\\frame_000032.jpg",
+      "sheet": "sheets/sheet_003.jpg",
+      "cell": 9
+    },
+    {
+      "timestamp": 22.722222000000002,
+      "kind": "uniform",
+      "path": "uniform\\frame_000033.jpg",
+      "sheet": "sheets/sheet_003.jpg",
+      "cell": 10
+    },
+    {
+      "timestamp": 23.4322914375,
+      "kind": "uniform",
+      "path": "uniform\\frame_000034.jpg",
+      "sheet": "sheets/sheet_003.jpg",
+      "cell": 11
+    },
+    {
+      "timestamp": 24.142360875,
+      "kind": "uniform",
+      "path": "uniform\\frame_000035.jpg",
+      "sheet": "sheets/sheet_003.jpg",
+      "cell": 12
+    },
+    {
+      "timestamp": 24.8524303125,
+      "kind": "uniform",
+      "path": "uniform\\frame_000036.jpg",
+      "sheet": "sheets/sheet_004.jpg",
+      "cell": 1
+    },
+    {
+      "timestamp": 25.56249975,
+      "kind": "uniform",
+      "path": "uniform\\frame_000037.jpg",
+      "sheet": "sheets/sheet_004.jpg",
+      "cell": 2
+    },
+    {
+      "timestamp": 26.2725691875,
+      "kind": "uniform",
+      "path": "uniform\\frame_000038.jpg",
+      "sheet": "sheets/sheet_004.jpg",
+      "cell": 3
+    },
+    {
+      "timestamp": 26.982638625,
+      "kind": "uniform",
+      "path": "uniform\\frame_000039.jpg",
+      "sheet": "sheets/sheet_004.jpg",
+      "cell": 4
+    },
+    {
+      "timestamp": 27.6927080625,
+      "kind": "uniform",
+      "path": "uniform\\frame_000040.jpg",
+      "sheet": "sheets/sheet_004.jpg",
+      "cell": 5
+    },
+    {
+      "timestamp": 28.402777500000003,
+      "kind": "uniform",
+      "path": "uniform\\frame_000041.jpg",
+      "sheet": "sheets/sheet_004.jpg",
+      "cell": 6
+    },
+    {
+      "timestamp": 29.112846937500002,
+      "kind": "uniform",
+      "path": "uniform\\frame_000042.jpg",
+      "sheet": "sheets/sheet_004.jpg",
+      "cell": 7
+    },
+    {
+      "timestamp": 29.822916375000002,
+      "kind": "uniform",
+      "path": "uniform\\frame_000043.jpg",
+      "sheet": "sheets/sheet_004.jpg",
+      "cell": 8
+    },
+    {
+      "timestamp": 30.5329858125,
+      "kind": "uniform",
+      "path": "uniform\\frame_000044.jpg",
+      "sheet": "sheets/sheet_004.jpg",
+      "cell": 9
+    },
+    {
+      "timestamp": 31.24305525,
+      "kind": "uniform",
+      "path": "uniform\\frame_000045.jpg",
+      "sheet": "sheets/sheet_004.jpg",
+      "cell": 10
+    },
+    {
+      "timestamp": 31.9531246875,
+      "kind": "uniform",
+      "path": "uniform\\frame_000046.jpg",
+      "sheet": "sheets/sheet_004.jpg",
+      "cell": 11
+    },
+    {
+      "timestamp": 32.663194125000004,
+      "kind": "uniform",
+      "path": "uniform\\frame_000047.jpg",
+      "sheet": "sheets/sheet_004.jpg",
+      "cell": 12
+    },
+    {
+      "timestamp": 33.3732635625,
+      "kind": "uniform",
+      "path": "uniform\\frame_000048.jpg",
+      "sheet": "sheets/sheet_005.jpg",
+      "cell": 1
+    }
+  ],
+  "sheets": [
+    {
+      "path": "sheets\\sheet_001.jpg",
+      "start": 0.0,
+      "end": 7.8107638125,
+      "frame_count": 12
+    },
+    {
+      "path": "sheets\\sheet_002.jpg",
+      "start": 8.52083325,
+      "end": 15.621527625,
+      "frame_count": 12
+    },
+    {
+      "path": "sheets\\sheet_003.jpg",
+      "start": 16.331597062500002,
+      "end": 24.142360875,
+      "frame_count": 12
+    },
+    {
+      "path": "sheets\\sheet_004.jpg",
+      "start": 24.8524303125,
+      "end": 32.663194125000004,
+      "frame_count": 12
+    },
+    {
+      "path": "sheets\\sheet_005.jpg",
+      "start": 33.3732635625,
+      "end": 33.3732635625,
+      "frame_count": 1
+    }
+  ],
+  "probe": {
+    "streams": [
+      {
+        "index": 0,
+        "codec_name": "aac",
+        "codec_long_name": "AAC (Advanced Audio Coding)",
+        "profile": "LC",
+        "codec_type": "audio",
+        "codec_tag_string": "mp4a",
+        "codec_tag": "0x6134706d",
+        "mime_codec_string": "mp4a.40.2",
+        "sample_fmt": "fltp",
+        "sample_rate": "48000",
+        "channels": 2,
+        "channel_layout": "stereo",
+        "bits_per_sample": 0,
+        "initial_padding": 0,
+        "id": "0x2",
+        "r_frame_rate": "0/0",
+        "avg_frame_rate": "0/0",
+        "time_base": "1/48000",
+        "start_pts": 0,
+        "start_time": "0.000000",
+        "duration_ts": 1636000,
+        "duration": "34.083333",
+        "bit_rate": "317334",
+        "nb_frames": "1599",
+        "extradata_size": 2,
+        "disposition": {
+          "default": 1,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0,
+          "timed_thumbnails": 0,
+          "non_diegetic": 0,
+          "captions": 0,
+          "descriptions": 0,
+          "metadata": 0,
+          "dependent": 0,
+          "still_image": 0,
+          "multilayer": 0
+        },
+        "tags": {
+          "creation_time": "2026-09-19T03:35:39.000000Z",
+          "language": "eng",
+          "handler_name": "#Mainconcept MP4 Sound Media Handler"
+        }
+      },
+      {
+        "index": 1,
+        "codec_name": "h264",
+        "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+        "profile": "Main",
+        "codec_type": "video",
+        "codec_tag_string": "avc1",
+        "codec_tag": "0x31637661",
+        "mime_codec_string": "avc1.4d4029",
+        "width": 1080,
+        "height": 1920,
+        "coded_width": 1080,
+        "coded_height": 1920,
+        "has_b_frames": 1,
+        "pix_fmt": "yuv420p",
+        "level": 41,
+        "color_range": "tv",
+        "color_space": "bt709",
+        "color_transfer": "bt709",
+        "color_primaries": "bt709",
+        "chroma_location": "left",
+        "field_order": "progressive",
+        "is_avc": "true",
+        "nal_length_size": "4",
+        "id": "0x1",
+        "r_frame_rate": "24/1",
+        "avg_frame_rate": "24/1",
+        "time_base": "1/24000",
+        "start_pts": 0,
+        "start_time": "0.000000",
+        "duration_ts": 818000,
+        "duration": "34.083333",
+        "bit_rate": "9966777",
+        "bits_per_raw_sample": "8",
+        "nb_frames": "818",
+        "extradata_size": 41,
+        "disposition": {
+          "default": 1,
+          "dub": 0,
+          "original": 0,
+          "comment": 0,
+          "lyrics": 0,
+          "karaoke": 0,
+          "forced": 0,
+          "hearing_impaired": 0,
+          "visual_impaired": 0,
+          "clean_effects": 0,
+          "attached_pic": 0,
+          "timed_thumbnails": 0,
+          "non_diegetic": 0,
+          "captions": 0,
+          "descriptions": 0,
+          "metadata": 0,
+          "dependent": 0,
+          "still_image": 0,
+          "multilayer": 0
+        },
+        "tags": {
+          "creation_time": "2026-09-19T03:35:39.000000Z",
+          "language": "eng",
+          "handler_name": "\u001fMainconcept Video Media Handler",
+          "encoder": "AVC Coding"
+        }
+      }
+    ],
+    "format": {
+      "filename": "C:\\Users\\317\\reels-media\\analytics\\4rabet-repeat\\src\\in_4rabet_21.mp4",
+      "nb_streams": 2,
+      "nb_programs": 0,
+      "nb_stream_groups": 0,
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "format_long_name": "QuickTime / MOV",
+      "start_time": "0.000000",
+      "duration": "34.083333",
+      "size": "43877236",
+      "bit_rate": "10298813",
+      "probe_score": 100,
+      "tags": {
+        "major_brand": "mp42",
+        "minor_version": "0",
+        "compatible_brands": "mp42mp41",
+        "creation_time": "2026-09-19T03:35:38.000000Z"
+      }
+    }
+  }
+}

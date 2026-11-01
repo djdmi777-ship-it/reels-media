@@ -2,3 +2,13 @@
 /ai-models-reel-share.mp4
 /ai-models-reel-v2.mp4
 /ai-models-reel-v3.mp4
+.env
+.env.*
+!.env.example
+/analytics/**/src/
+/analytics/**/frames/
+/analytics/**/audio/
+/analytics/**/*.mp4
+/analytics/**/*.wav
+/analytics/**/*.jpg
+/analytics/**/*.png

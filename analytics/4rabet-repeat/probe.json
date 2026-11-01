@@ -1,0 +1,102 @@
+﻿[
+    {
+        "file":  "in_4rabet_01.mp4",
+        "duration_s":  24.08,
+        "size_mb":  29.5,
+        "width":  1080,
+        "height":  1920,
+        "fps":  "24/1",
+        "vcodec":  "h264",
+        "acodec":  "aac"
+    },
+    {
+        "file":  "in_4RABET_01_konec_MAX.mp4",
+        "duration_s":  55.21,
+        "size_mb":  62.8,
+        "width":  1080,
+        "height":  1920,
+        "fps":  "30/1",
+        "vcodec":  "h264",
+        "acodec":  "aac"
+    },
+    {
+        "file":  "in_4rabet_03_2_streetsurvey_NIK.mp4",
+        "duration_s":  51.44,
+        "size_mb":  36.7,
+        "width":  1080,
+        "height":  1920,
+        "fps":  "30/1",
+        "vcodec":  "h264",
+        "acodec":  "aac"
+    },
+    {
+        "file":  "in_4rabet_05.mp4",
+        "duration_s":  40.08,
+        "size_mb":  49.4,
+        "width":  1080,
+        "height":  1920,
+        "fps":  "24/1",
+        "vcodec":  "h264",
+        "acodec":  "aac"
+    },
+    {
+        "file":  "in_4rabet_10.mp4",
+        "duration_s":  55.46,
+        "size_mb":  68.2,
+        "width":  720,
+        "height":  1280,
+        "fps":  "24/1",
+        "vcodec":  "h264",
+        "acodec":  "aac"
+    },
+    {
+        "file":  "in_4rabet_13.mp4",
+        "duration_s":  30.07,
+        "size_mb":  38.9,
+        "width":  1080,
+        "height":  1920,
+        "fps":  "30/1",
+        "vcodec":  "h264",
+        "acodec":  "aac"
+    },
+    {
+        "file":  "in_4rabet_15.mp4",
+        "duration_s":  37.07,
+        "size_mb":  47,
+        "width":  1080,
+        "height":  1920,
+        "fps":  "30/1",
+        "vcodec":  "h264",
+        "acodec":  "aac"
+    },
+    {
+        "file":  "in_4rabet_18.mp4",
+        "duration_s":  36.07,
+        "size_mb":  46,
+        "width":  1080,
+        "height":  1920,
+        "fps":  "30/1",
+        "vcodec":  "h264",
+        "acodec":  "aac"
+    },
+    {
+        "file":  "in_4rabet_21.mp4",
+        "duration_s":  34.08,
+        "size_mb":  41.8,
+        "width":  1080,
+        "height":  1920,
+        "fps":  "24/1",
+        "vcodec":  "h264",
+        "acodec":  "aac"
+    },
+    {
+        "file":  "in_4rabet_26.mp4",
+        "duration_s":  30.04,
+        "size_mb":  37,
+        "width":  1080,
+        "height":  1920,
+        "fps":  "24/1",
+        "vcodec":  "h264",
+        "acodec":  "aac"
+    }
+]
